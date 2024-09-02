@@ -1,0 +1,17 @@
+{
+    // Enable ESLint as the default formatter
+    "editor.defaultFormatter": "dbaeumer.vscode-eslint",
+  
+    // Format the file on save
+    "editor.formatOnSave": true,
+  
+    // Enable ESLint to auto fix errors on save
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "always"
+    },
+  
+    // Optional: Automatically save files after a delay
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000 // Adjust delay as needed
+  }
+  
