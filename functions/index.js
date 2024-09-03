@@ -19,25 +19,54 @@ initializeApp();
 
 exports.getDailyHumors = onRequest(async (req, res) => {
     try {
-        const { HumorCategoryList, getTodayDateUTC } = require("./util/util");
+        const { HumorCategoryList, getDateInUTC, addDaysToDate } = require("./util/util");
         const requestedCate = req.query.category; // string
         if (!HumorCategoryList.includes(requestedCate)) {
+            logger.info("Invalid category.");
             return res.status(400).json({ error: "Invalid category" });
         }
-        // Get today's date in UTC format (yyyy-mm-dd)
-        const todayDate = getTodayDateUTC();
+        // Get today"s date in UTC format (yyyy-mm-dd)
+        const todayDate = getDateInUTC(new Date());
+        const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
         // Push the new message into Firestore using the Firebase Admin SDK.
-        const snapshot = await getFirestore()
+        const dailySnapshot = await getFirestore()
             .collection("Daily")
-            .doc(todayDate) // Assuming 'date' is stored as a field in your documents
-            .collection(requestedCate) // Filter by category if applicable
+            .where("date", ">", sevenDaysAgoDate)  // Start date filter
+            .where("date", "<=", todayDate)    // End date filter
             .get();
-        // Send back a message that we've successfully written the message
-        const humorList = snapshot.docs.map((doc) => ({
-            uuid: doc.id,
-            ...doc.data(), uuid: doc.id,
-        }));
-        res.json({ humorList });
+
+        // Check if there are any matching date documents
+        if (dailySnapshot.empty) {
+            logger.info("No matching date documents found.");
+            return res.json({ humorList: [] });
+        }
+
+        // Prepare to fetch subcollections
+        const promises = [];
+
+        // Iterate over each date document to access the subcollection (e.g., DAD_JOKES)
+        dailySnapshot.forEach(doc => {
+            const dateDocId = doc.id; // ID of the date document
+            const subcollectionRef = getFirestore()
+                .collection("Daily")
+                .doc(dateDocId)
+                .collection(requestedCate); // Access requested subcollection
+
+            // Add the subcollection query promise to the array
+            promises.push(subcollectionRef.get());
+        });
+
+        // Await all subcollection fetches
+        const snapshots = await Promise.all(promises);
+
+        // Flatten and collect all documents from the subcollections
+        const dailyHumorList = snapshots.flatMap(snapshot =>
+            snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+            }))
+        );
+        res.json({ humorList: dailyHumorList });
     } catch (error) {
         logger.error("Error fetching daily humors:", error);
         res.status(500).json({ error: "Could not fetch humors..." });

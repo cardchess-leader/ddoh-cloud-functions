@@ -19,20 +19,27 @@ const HumorCategoryList = [
  *
  * @return {string} The current date in 'yyyy-mm-dd' format.
  */
-function getTodayDateUTC() {
-    const today = new Date();
+function getDateInUTC(date) {
+    // const today = new Date();
 
     // Extract year, month, and day in UTC (GMT+0)
-    const year = today.getUTCFullYear();         // Year in UTC
-    const month = String(today.getUTCMonth() + 1).padStart(2, "0");  // Month in UTC, adding 1 since it's zero-indexed
-    const day = String(today.getUTCDate()).padStart(2, "0");         // Day in UTC
+    const year = date.getUTCFullYear();         // Year in UTC
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");  // Month in UTC, adding 1 since it's zero-indexed
+    const day = String(date.getUTCDate()).padStart(2, "0");         // Day in UTC
 
     // Combine them into the desired format 'yyyy-mm-dd'
     return `${year}-${month}-${day}`;
 }
 
+function addDaysToDate(date, numDaysToAdd) {
+    return new Date(Date.now() + numDaysToAdd * 24 * 60 * 60 * 1000);
+}
+
+
+
 // Export both functions and constants
 module.exports = {
     HumorCategoryList,
-    getTodayDateUTC,
+    getDateInUTC,
+    addDaysToDate,
 };
