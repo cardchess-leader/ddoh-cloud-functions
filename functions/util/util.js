@@ -1,3 +1,4 @@
+/* eslint-disable require-jsdoc */
 const HumorCategoryList = [
     "DAD_JOKES",
     "KNOCK_KNOCK_JOKES",
@@ -11,14 +12,6 @@ const HumorCategoryList = [
     "YOUR_HUMORS",
 ];
 
-/**
- * Gets today's date in UTC format as a string.
- *
- * This function returns the current date in the UTC time zone
- * formatted as 'yyyy-mm-dd'.
- *
- * @return {string} The current date in 'yyyy-mm-dd' format.
- */
 function getDateInUTC(date) {
     // const today = new Date();
 
