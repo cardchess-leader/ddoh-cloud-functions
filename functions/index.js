@@ -11,10 +11,20 @@
 const { logger } = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
 const { initializeApp } = require("firebase-admin/app");
+const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const cors = require("cors");
 const { HumorCategoryList, getDateInUTC, addDaysToDate, validateRequestBody } = require("./util/util");
 initializeApp();
+
+const varifyAdminPassword = async (passwordHash) => {
+    const bcrypt = require("bcrypt");
+    const db = getDatabase();
+    const ref = db.ref("password")
+    const snapshot = await ref.once("value");
+    const password = snapshot.val();
+    return await bcrypt.compare(password, passwordHash);
+}
 
 // Configure CORS to allow requests from multiple origins
 const corsHandler = cors({
@@ -27,7 +37,10 @@ const corsHandler = cors({
 exports.addDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const payload = req.body;
+            const { passwordHash, ...payload } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) {
+                return res.status(401).json("Wrong password!");
+            }
             const validatePayload = validateRequestBody(payload);
             if (validatePayload.statusCode === 400) {
                 return res.status(400).json(validatePayload);
@@ -56,7 +69,10 @@ exports.addDailyHumors = onRequest(async (req, res) => {
 exports.updateDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const payload = req.body;
+            const { passwordHash, ...payload } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) {
+                return res.status(401).json("Wrong password!");
+            }
             const validatePayload = validateRequestBody(payload);
             if (validatePayload.statusCode === 400) {
                 return res.status(400).json(validatePayload);
@@ -129,6 +145,7 @@ exports.getDailyHumors = onRequest(async (req, res) => {
                             .collection("Daily")
                             .doc(dateDocId)
                             .collection(cate)
+                            .where("index", ">=", 0)
                             .orderBy("index");
                         promises.push(subcollectionRef.get());
                     });
@@ -137,6 +154,7 @@ exports.getDailyHumors = onRequest(async (req, res) => {
                         .collection("Daily")
                         .doc(dateDocId)
                         .collection(requestedCate)
+                        .where("index", ">=", 0)
                         .orderBy("index");
                     promises.push(subcollectionRef.get());
                 }
