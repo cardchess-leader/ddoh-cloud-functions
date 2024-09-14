@@ -12,6 +12,11 @@ const HumorCategoryList = [
     "YOUR_HUMORS",
 ];
 
+const CorsOriginList = [ // Comment out localhost:3000 in production mode
+    "https://ddoh-admin-app--daily-dose-of-humors.us-central1.hosted.app",
+    // "http://localhost:3000",
+];
+
 function getDateInUTC(date) {
     // Extract year, month, and day in UTC (GMT+0)
     const year = date.getUTCFullYear();         // Year in UTC
@@ -24,6 +29,33 @@ function getDateInUTC(date) {
 
 function addDaysToDate(date, numDaysToAdd) {
     return new Date(Date.now() + numDaysToAdd * 24 * 60 * 60 * 1000);
+}
+
+function validateUserSubmitBody(requestBody) {
+    if (typeof requestBody.nickname !== "string" || requestBody.nickname.length > 50) {
+        return { statusCode: 400, error: "Invalid nickname. Please check \"nickname\" field." };
+    }
+
+    if (typeof requestBody.context !== "string" || requestBody.context.length == 0 || requestBody.context.length > 500) {
+        return { statusCode: 400, error: "Invalid context. Please check \"context\" field." };
+    }
+
+    if (typeof requestBody.punchline !== "string" || requestBody.punchline.length > 500) {
+        return { statusCode: 400, error: "Invalid punchline. Please check \"punchline\" field." };
+    }
+
+    if (typeof requestBody.app_uuid !== "string" || requestBody.app_uuid.length != 36) {
+        return { statusCode: 400, error: "Unexpected error. Please try again later." };
+    }
+
+    if (typeof requestBody.humor_uuid !== "string" || requestBody.humor_uuid.length != 36) {
+        return { statusCode: 400, error: "Unexpected error. Please try again later." };
+    }
+
+    if (typeof requestBody.subscription_type !== "string" || requestBody.subscription_type.length > 10) {
+        return { statusCode: 400, error: "Unexpected error. Please try again later." };
+    }
+    return { statusCode: 200 };
 }
 
 function validateRequestBody(requestBody) {
@@ -89,7 +121,9 @@ function validateRequestBody(requestBody) {
 // Export both functions and constants
 module.exports = {
     HumorCategoryList,
+    CorsOriginList,
     getDateInUTC,
     addDaysToDate,
-    validateRequestBody
+    validateRequestBody,
+    validateUserSubmitBody,
 };

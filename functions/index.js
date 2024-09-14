@@ -14,7 +14,7 @@ const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const cors = require("cors");
-const { HumorCategoryList, getDateInUTC, addDaysToDate, validateRequestBody } = require("./util/util");
+const { HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
 
 const varifyAdminPassword = async (passwordHash) => {
@@ -28,7 +28,7 @@ const varifyAdminPassword = async (passwordHash) => {
 
 // Configure CORS to allow requests from multiple origins
 const corsHandler = cors({
-    origin: ["https://ddoh-admin-app--daily-dose-of-humors.us-central1.hosted.app", "http://localhost:3000"], // Specify allowed origins
+    origin: CorsOriginList, // Specify allowed origins
     methods: ["GET", "POST", "OPTIONS"], // Allowed HTTP methods
     allowedHeaders: ["Content-Type", "Authorization"], // Allowed headers
     credentials: true, // Allow credentials if needed
@@ -175,6 +175,30 @@ exports.getDailyHumors = onRequest(async (req, res) => {
         } catch (error) {
             logger.error("Error fetching daily humors:", error);
             res.status(500).json({ error: "Could not fetch humors..." });
+        }
+    });
+});
+
+exports.userSubmitDailyHumors = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const payload = req.body;
+            const validatePayload = validateUserSubmitBody(payload);
+            if (validatePayload.statusCode === 400) {
+                return res.status(400).json(validatePayload);
+            }
+
+            const db = getFirestore();
+            const dateDocRef = db.collection("User_Submit").doc(payload.humor_uuid);
+
+            // Set the "date" field on the document, creating it if it doesn't exist
+            await dateDocRef.set({...payload, date: getDateInUTC(new Date())});
+
+            // Send a success response
+            res.status(200).json({ message: "Humor submission successful." });
+        } catch (error) {
+            console.error("Error adding document:", error);
+            res.status(500).json({ error: "Unexpected error. Please try again later." });
         }
     });
 });
