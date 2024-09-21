@@ -1,4 +1,6 @@
 /* eslint-disable require-jsdoc */
+const IS_PRODUCTION = true;
+
 const HumorCategoryList = [
     "DAD_JOKES",
     "KNOCK_KNOCK_JOKES",
@@ -13,8 +15,7 @@ const HumorCategoryList = [
 ];
 
 const CorsOriginList = [ // Comment out localhost:3000 in production mode
-    "https://ddoh-admin-app--daily-dose-of-humors.us-central1.hosted.app",
-    // "http://localhost:3000",
+    IS_PRODUCTION ? "https://ddoh-admin-app--daily-dose-of-humors.us-central1.hosted.app" : "http://localhost:3000",
 ];
 
 function getDateInUTC(date) {
@@ -120,6 +121,7 @@ function validateRequestBody(requestBody) {
 
 // Export both functions and constants
 module.exports = {
+    IS_PRODUCTION,
     HumorCategoryList,
     CorsOriginList,
     getDateInUTC,

@@ -10,14 +10,19 @@
 // The Cloud Functions for Firebase SDK to create Cloud Functions and triggers.
 const { logger } = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
+const admin = require("firebase-admin");
 const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const cors = require("cors");
-const { HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
+const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
 
 const varifyAdminPassword = async (passwordHash) => {
+    if (!IS_PRODUCTION) {
+        return true;
+    }
     const bcrypt = require("bcrypt");
     const db = getDatabase();
     const ref = db.ref("password")
@@ -49,7 +54,7 @@ exports.addDailyHumors = onRequest(async (req, res) => {
             const db = getFirestore();
             const dateDocRef = db.collection("Daily").doc(payload.date);
 
-            // Set the "date" field on the document, creating it if it doesn't exist
+            // Set the "date" field on the document, creating it if it doesn"t exist
             await dateDocRef.set({ date: payload.date }, { merge: true });
 
             const docRef = dateDocRef.collection(payload.category).doc(payload.uuid);
@@ -116,7 +121,7 @@ exports.getDailyHumors = onRequest(async (req, res) => {
                     .where("date", "=", req.query.date)
                     .get();
             } else {
-                // Get today's date in UTC format (yyyy-mm-dd)
+                // Get today"s date in UTC format (yyyy-mm-dd)
                 const todayDate = getDateInUTC(new Date());
                 const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
                 // Push the new message into Firestore using the Firebase Admin SDK.
@@ -124,6 +129,7 @@ exports.getDailyHumors = onRequest(async (req, res) => {
                     .collection("Daily")
                     .where("date", ">", sevenDaysAgoDate)  // Start date filter
                     .where("date", "<=", todayDate)    // End date filter
+                    .orderBy("date", "desc")
                     .get();
             }
 
@@ -166,9 +172,8 @@ exports.getDailyHumors = onRequest(async (req, res) => {
             // Flatten and collect all documents from the subcollections
             const dailyHumorList = snapshots.flatMap(snapshot =>
                 snapshot.docs.map(doc => ({
-                    id: doc.id,
                     ...doc.data(),
-                    is_new: doc.date === getDateInUTC(new Date()),
+                    is_new: doc.data().date === getDateInUTC(new Date()),
                 }))
             );
             res.json({ humorList: dailyHumorList });
@@ -191,8 +196,8 @@ exports.userSubmitDailyHumors = onRequest(async (req, res) => {
             const db = getFirestore();
             const dateDocRef = db.collection("User_Submit").doc(payload.humor_uuid);
 
-            // Set the "date" field on the document, creating it if it doesn't exist
-            await dateDocRef.set({...payload, date: getDateInUTC(new Date())});
+            // Set the "date" field on the document, creating it if it doesn"t exist
+            await dateDocRef.set({ ...payload, date: getDateInUTC(new Date()) });
 
             // Send a success response
             res.status(200).json({ message: "Humor submission successful." });
@@ -201,4 +206,46 @@ exports.userSubmitDailyHumors = onRequest(async (req, res) => {
             res.status(500).json({ error: "Unexpected error. Please try again later." });
         }
     });
+});
+
+exports.resetAppState = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const lastResetDate = req.query.lastResetDate; // string
+            const todayString = getDateInUTC(new Date());
+            if (lastResetDate == todayString) {
+                return res.status(400).json({ message: "Already reset for today" });
+            } else {
+                return res.status(200).json({ last_reset_date: todayString });
+            }
+        } catch (error) {
+            console.error("Unexpected error while reseting app state.", error);
+            res.status(500).json({ error: "Unexpected error while reseting app state." });
+        }
+    });
+});
+
+
+exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
+    const db = getFirestore();
+    const snapshot = await db.collection("Daily").doc(getDateInUTC(addDaysToDate(new Date(), 1 / 24))).collection("DAD_JOKES").where("index", "==", 0).limit(1).get();
+    if (snapshot.empty) {
+        return null;
+    } else {
+        const message = {
+            notification: {
+                title: "New humors just arrived!",
+                body: snapshot.docs[0].data().context,
+            },
+            topic: "daily_humor",  // The topic name to send the notification to
+        };
+        try {
+            // Send the notification to the topic
+            const response = await admin.messaging().send(message);
+            console.log("Successfully sent message:", response);
+        } catch (error) {
+            console.log("Error sending message:", error);
+        }
+    }
+    return null;
 });
