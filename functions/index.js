@@ -15,9 +15,13 @@ const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 const cors = require("cors");
+const Busboy = require('busboy');
 const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
+const bucket = admin.storage().bucket();
 
 const varifyAdminPassword = async (passwordHash) => {
     if (!IS_PRODUCTION) {
@@ -39,6 +43,31 @@ const corsHandler = cors({
     credentials: true, // Allow credentials if needed
 });
 
+/** Helper functions */
+function getStoragePathFromUrl(publicUrl) {
+    // Regular expression to match the pattern 'bundles/covers/{filename}'
+    const regex = /bundles\/covers\/([^?]+)/;
+    const match = publicUrl.match(regex);
+    
+    if (match && match[0]) {
+        return decodeURIComponent(match[0]);
+    }
+    
+    return null; // Return null if no matching pattern is found
+}
+
+const removeImage = async (storagePath) => {
+    try {
+        const file = bucket.file(storagePath);
+        await file.delete();
+        console.log("Cover image deleted successfully.");
+    } catch (error) {
+        console.error("Error deleting cover image:", error);
+    }
+}
+/** End of helper functions */
+
+// For admin app use
 exports.addDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -71,6 +100,7 @@ exports.addDailyHumors = onRequest(async (req, res) => {
     });
 });
 
+// For admin app use
 exports.updateDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -103,6 +133,7 @@ exports.updateDailyHumors = onRequest(async (req, res) => {
     });
 });
 
+// For both admin & flutter app use
 exports.getDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -184,6 +215,7 @@ exports.getDailyHumors = onRequest(async (req, res) => {
     });
 });
 
+// For flutter app use
 exports.userSubmitDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -208,6 +240,7 @@ exports.userSubmitDailyHumors = onRequest(async (req, res) => {
     });
 });
 
+// For flutter app use
 exports.resetAppState = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -225,7 +258,7 @@ exports.resetAppState = onRequest(async (req, res) => {
     });
 });
 
-
+// Scheduled function for notification
 exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
     const db = getFirestore();
     const snapshot = await db.collection("Daily").doc(getDateInUTC(addDaysToDate(new Date(), 1 / 24))).collection("DAD_JOKES").where("index", "==", 0).limit(1).get();
@@ -248,4 +281,189 @@ exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
         }
     }
     return null;
+});
+
+// For admin app use
+exports.getBundleList = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const snapshot = await getFirestore()
+                .collection("Bundles")
+                .where("active", "==", true)
+                .get();
+
+            if (snapshot.empty) {
+                return res.json({ bundleList: [] }); // Early return for empty collection
+            }
+
+            const bundleList = snapshot.docs.map(doc => {
+                const data = doc.data();
+                return data.uuid; // Return UUID directly
+            });
+
+            res.json({ bundleList });
+
+        } catch (error) {
+            logger.error("Error fetching bundle list:", error);
+            res.status(500).json({ error: "Could not fetch bundle list..." });
+        }
+    });
+});
+
+// For admin app use
+exports.getBundleDetail = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const uuid = req.query.uuid; // string
+
+            if (!uuid) {
+                return res.status(400).json({ error: "UUID parameter is missing" });
+            }
+
+            const bundleSnapshot = await getFirestore()
+                .collection("Bundles")
+                .doc(uuid)
+                .get();
+
+            if (!bundleSnapshot.exists) {
+                return res.status(404).json({ error: "Bundle not found" });
+            }
+
+            const bundleDetail = bundleSnapshot.data();
+            res.json({ bundleDetail });
+
+        } catch (error) {
+            logger.error("Error fetching bundle detail:", error);
+            res.status(500).json({ error: "Could not fetch bundle detail" });
+        }
+    });
+});
+
+// For admin app use
+exports.updateBundleCoverImages = onRequest(async (req, res) => {
+    const fields = {}; // Object to store form fields (like bundle_uuid, method, index)
+    const updateBundleInfo = async (bundle_uuid, method, index, publicPath) => {
+        try {
+            const bundleDoc = await admin.firestore().collection("Bundles").doc(bundle_uuid).get();
+            if (!bundleDoc.exists) {
+                throw new Error("Bundle not found");
+            }
+            let coverImgList = bundleDoc.data().cover_img_list || [];
+
+            if (method === "replace") {
+                const storagePath = getStoragePathFromUrl(coverImgList[index]);
+                await removeImage(storagePath);
+                coverImgList[index] = publicPath;
+            } else if (method === "add") {
+                coverImgList.push(publicPath);
+            }
+
+            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ cover_img_list: coverImgList });
+        } catch (error) {
+            console.error("Error updating bundle info:", error);
+            throw error;
+        }
+    }
+
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
+
+    // Capture the buffered body from req.rawBody
+    if (!req.rawBody) {
+        return res.status(400).json({ error: 'Request body is missing' });
+    }
+
+    // Initialize Busboy with the headers
+    const busboy = Busboy({ headers: req.headers });
+
+    // Capture form fields
+    busboy.on('field', (fieldname, value) => {
+        console.log(`Field [${fieldname}]: value: ${value}`);
+        fields[fieldname] = value; // Save field values to the fields object
+    });
+
+    // Capture file upload
+    busboy.on('file', (fieldname, fileStream, file, encoding, mimetype) => {
+        console.log("??");
+        const fileExtension = path.extname(file.filename);
+        const newFileName = `${uuidv4()}${fileExtension}`;
+        const storagePath = `bundles/covers/${newFileName}`;
+        const fileUpload = bucket.file(storagePath);
+
+        const blobStream = fileUpload.createWriteStream({
+            metadata: {
+                contentType: mimetype,
+            },
+        });
+
+        fileStream.pipe(blobStream);
+
+        blobStream.on('error', (error) => {
+            console.error("BlobStream error: ", error);
+            return res.status(500).json({ error: 'Upload failed', details: error });
+        });
+
+        blobStream.on('finish', async () => {
+            try {
+                await fileUpload.makePublic();
+                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+                const { bundle_uuid, method, index } = fields;
+
+                if (!bundle_uuid || !["add", "delete", "replace"].includes(method)) {
+                    return res.status(400).json({ error: 'Invalid input' });
+                }
+
+                await updateBundleInfo(bundle_uuid, method, parseInt(index, 10), publicPath);
+
+                return res.status(200).json({
+                    message: 'File uploaded successfully',
+                    imageUrl: publicPath,
+                });
+            } catch (error) {
+                console.error("Upload process error: ", error)
+                return res.status(500).json({ error: 'Error processing file upload', details: error });
+            }
+        });
+    });
+
+    busboy.on('finish', () => {
+        console.log('File upload completed');
+    });
+
+    busboy.on('error', (err) => {
+        console.error('Busboy error:', err);
+        return res.status(500).json({ error: 'File upload failed', details: err });
+    });
+
+    // Instead of piping req, use busboy.end() and pass the buffered body
+    busboy.end(req.rawBody);
+});
+
+// For admin app use
+exports.removeBundleCoverImages = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const { bundle_uuid, index, passwordHash } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) {
+                return res.status(401).json("Wrong password!");
+            }
+
+            /** Add validation code here */
+            const bundleDoc = await getFirestore().collection("Bundles").doc(bundle_uuid).get();
+            if (!bundleDoc.exists) {
+                throw new Error("Bundle not found");
+            }
+            let coverImgList = bundleDoc.data().cover_img_list;
+            const storagePath = getStoragePathFromUrl(coverImgList[index]);
+            await removeImage(storagePath);
+            coverImgList.splice(index, 1);
+            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ cover_img_list: coverImgList });
+            // Send a success response
+            res.status(200).json({ message: "Cover image removed successfully." });
+        } catch (error) {
+            console.error("Error removing cover image:", error);
+            res.status(500).json({ error: "Could not remove cover image." });
+        }
+    });
 });
