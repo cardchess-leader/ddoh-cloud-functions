@@ -1,13 +1,3 @@
-/**
- * Import function triggers from their respective submodules:
- *
- * const {onCall} = require("firebase-functions/v2/https");
- * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
- *
- * See a full list of supported triggers at https://firebase.google.com/docs/functions
- */
-
-// The Cloud Functions for Firebase SDK to create Cloud Functions and triggers.
 const { logger } = require("firebase-functions");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
@@ -48,11 +38,11 @@ function getStoragePathFromUrl(publicUrl) {
     // Regular expression to match the pattern 'bundles/covers/{filename}'
     const regex = /bundles\/covers\/([^?]+)/;
     const match = publicUrl.match(regex);
-    
+
     if (match && match[0]) {
         return decodeURIComponent(match[0]);
     }
-    
+
     return null; // Return null if no matching pattern is found
 }
 
@@ -81,12 +71,7 @@ exports.addDailyHumors = onRequest(async (req, res) => {
             }
 
             const db = getFirestore();
-            const dateDocRef = db.collection("Daily").doc(payload.date);
-
-            // Set the "date" field on the document, creating it if it doesn"t exist
-            await dateDocRef.set({ date: payload.date }, { merge: true });
-
-            const docRef = dateDocRef.collection(payload.category).doc(payload.uuid);
+            const docRef = db.collection("Humors").doc(payload.uuid);
 
             // Add or set the document in the subcollection
             await docRef.set(payload);
@@ -113,7 +98,7 @@ exports.updateDailyHumors = onRequest(async (req, res) => {
                 return res.status(400).json(validatePayload);
             }
             const db = getFirestore();
-            const docRef = db.collection("Daily").doc(payload.date).collection(payload.category).doc(payload.uuid);
+            const docRef = db.collection("Humors").doc(payload.uuid);
 
             // Check if document exists
             const docSnapshot = await docRef.get();
@@ -138,75 +123,35 @@ exports.getDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const requestedCate = req.query.category; // string
-
             // Category validation
             if (requestedCate && !HumorCategoryList.includes(requestedCate)) {
                 logger.info("Invalid category.");
                 return res.status(400).json({ error: "Invalid category" });
             }
 
-            let dailySnapshot;
+            let docsSnapshotRef = getFirestore().collection("Humors").where("source", "=", "Daily Dose of Humors").where("index", ">=", 0);
+            if (req.query.category) {
+                docsSnapshotRef = docsSnapshotRef.where("category", "=", req.query.category);
+            }
             if (req.query.date) {
-                dailySnapshot = await getFirestore()
-                    .collection("Daily")
-                    .where("date", "=", req.query.date)
-                    .get();
+                docsSnapshotRef = docsSnapshotRef.where("created_date", "=", req.query.date);
             } else {
                 // Get today"s date in UTC format (yyyy-mm-dd)
                 const todayDate = getDateInUTC(new Date());
                 const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
-                // Push the new message into Firestore using the Firebase Admin SDK.
-                dailySnapshot = await getFirestore()
-                    .collection("Daily")
-                    .where("date", ">", sevenDaysAgoDate)  // Start date filter
-                    .where("date", "<=", todayDate)    // End date filter
-                    .orderBy("date", "desc")
-                    .get();
+                docsSnapshotRef = docsSnapshotRef
+                    .where("created_date", ">", sevenDaysAgoDate)  // Start date filter
+                    .where("created_date", "<=", todayDate)    // End date filter
             }
+            const docsSnapshot = await docsSnapshotRef
+                .orderBy("created_date", "desc")
+                .orderBy("index", "asc")
+                .get();
 
-            // Check if there are any matching date documents
-            if (dailySnapshot.empty) {
-                logger.info("No matching date documents found.");
-                return res.json({ humorList: [] });
-            }
-
-            // Prepare to fetch subcollections
-            const promises = [];
-
-            // Iterate over each date document to access the subcollection (e.g., DAD_JOKES)
-            dailySnapshot.forEach(doc => {
-                const dateDocId = doc.id; // ID of the date document
-                if (requestedCate == null) {
-                    HumorCategoryList.forEach(cate => {
-                        const subcollectionRef = getFirestore()
-                            .collection("Daily")
-                            .doc(dateDocId)
-                            .collection(cate)
-                            .where("index", ">=", 0)
-                            .orderBy("index");
-                        promises.push(subcollectionRef.get());
-                    });
-                } else {
-                    const subcollectionRef = getFirestore()
-                        .collection("Daily")
-                        .doc(dateDocId)
-                        .collection(requestedCate)
-                        .where("index", ">=", 0)
-                        .orderBy("index");
-                    promises.push(subcollectionRef.get());
-                }
-            });
-
-            // Await all subcollection fetches
-            const snapshots = await Promise.all(promises);
-
-            // Flatten and collect all documents from the subcollections
-            const dailyHumorList = snapshots.flatMap(snapshot =>
-                snapshot.docs.map(doc => ({
-                    ...doc.data(),
-                    is_new: doc.data().date === getDateInUTC(new Date()),
-                }))
-            );
+            const dailyHumorList = docsSnapshot.docs.map(doc => ({
+                ...doc.data(),
+                is_new: doc.data().date === getDateInUTC(new Date()),
+            }))
             res.json({ humorList: dailyHumorList });
         } catch (error) {
             logger.error("Error fetching daily humors:", error);
@@ -441,6 +386,100 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 });
 
 // For admin app use
+exports.updateThumbnailImage = onRequest(async (req, res) => {
+    const fields = {}; // Object to store form fields (like bundle_uuid, method, index)
+    const updateBundleInfo = async (bundle_uuid, publicPath) => {
+        try {
+            const bundleDoc = await admin.firestore().collection("Bundles").doc(bundle_uuid).get();
+            if (!bundleDoc.exists) {
+                throw new Error("Bundle not found");
+            }
+
+            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ thumbnail_path: publicPath });
+        } catch (error) {
+            console.error("Error updating bundle info:", error);
+            throw error;
+        }
+    }
+
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method Not Allowed' });
+    }
+
+    // Capture the buffered body from req.rawBody
+    if (!req.rawBody) {
+        return res.status(400).json({ error: 'Request body is missing' });
+    }
+
+    // Initialize Busboy with the headers
+    const busboy = Busboy({ headers: req.headers });
+
+    // Capture form fields
+    busboy.on('field', (fieldname, value) => {
+        fields[fieldname] = value; // Save field values to the fields object
+    });
+
+    // Capture file upload
+    busboy.on('file', (fieldname, fileStream, file, encoding, mimetype) => {
+        const fileExtension = path.extname(file.filename);
+        const newFileName = `${uuidv4()}${fileExtension}`;
+        const storagePath = `bundles/thumbnails/${newFileName}`;
+        const fileUpload = bucket.file(storagePath);
+
+        const blobStream = fileUpload.createWriteStream({
+            metadata: {
+                contentType: mimetype,
+            },
+        });
+
+        fileStream.pipe(blobStream);
+
+        blobStream.on('error', (error) => {
+            console.error("BlobStream error: ", error);
+            return res.status(500).json({ error: 'Upload failed', details: error });
+        });
+
+        blobStream.on('finish', async () => {
+            try {
+                await fileUpload.makePublic();
+                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+                const { bundle_uuid, passwordHash } = fields;
+
+                if (!bundle_uuid) {
+                    return res.status(400).json({ error: 'Invalid input' });
+                }
+
+                if (!await varifyAdminPassword(passwordHash)) {
+                    return res.status(401).json("Wrong password!");
+                }
+
+                await updateBundleInfo(bundle_uuid, publicPath);
+
+                return res.status(200).json({
+                    message: 'File uploaded successfully',
+                    imageUrl: publicPath,
+                });
+            } catch (error) {
+                console.error("Upload process error: ", error)
+                return res.status(500).json({ error: 'Error processing file upload', details: error });
+            }
+        });
+    });
+
+    busboy.on('finish', () => {
+        console.log('File upload completed');
+    });
+
+    busboy.on('error', (err) => {
+        console.error('Busboy error:', err);
+        return res.status(500).json({ error: 'File upload failed', details: err });
+    });
+
+    // Instead of piping req, use busboy.end() and pass the buffered body
+    busboy.end(req.rawBody);
+});
+
+// For admin app use
 exports.removeBundleCoverImages = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -464,6 +503,78 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
         } catch (error) {
             console.error("Error removing cover image:", error);
             res.status(500).json({ error: "Could not remove cover image." });
+        }
+    });
+});
+
+// For admin app use
+exports.addHumorBundle = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const { passwordHash, ...payload } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) {
+                return res.status(401).json("Wrong password!");
+            }
+
+            const db = getFirestore();
+            const docRef = db.collection("Bundles").doc(payload.uuid);
+
+            // Add or set the document in the subcollection
+            await docRef.set({
+                active: payload.active,
+                bundle_name: payload.bundle_name,
+                category: payload.category,
+                cover_img_list: [],
+                created_date: payload.created_date,
+                humor_count: payload.humor_count,
+                language_code: payload.language_code,
+                set_list: payload.set_list,
+                thumbnail_path: '',
+                uuid: payload.uuid,
+            });
+
+            // Send a success response
+            res.status(200).json({ message: "Bundle added successfully." });
+        } catch (error) {
+            console.error("Error adding bundle:", error);
+            res.status(500).json({ error: "Could not add the bundle." });
+        }
+    });
+});
+
+// For admin app use
+exports.updateHumorBundle = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const { passwordHash, ...payload } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) {
+                return res.status(401).json("Wrong password!");
+            }
+            const db = getFirestore();
+            const docRef = db.collection("Bundles").doc(payload.uuid);
+
+            // Check if document exists
+            const docSnapshot = await docRef.get();
+            if (!docSnapshot.exists) {
+                return res.status(404).json({ error: "Document does not exist." });
+            }
+
+            // Update specific fields in the document
+            await docRef.update({
+                active: payload.active,
+                bundle_name: payload.bundle_name,
+                category: payload.category,
+                created_date: payload.created_date,
+                humor_count: payload.humor_count,
+                language_code: payload.language_code,
+                set_list: payload.set_list,
+            });
+
+            // Send a success response
+            res.status(200).json({ message: "Bundle updated successfully." });
+        } catch (error) {
+            console.error("Error updating bundle:", error);
+            res.status(500).json({ error: "Could not bundle the document." });
         }
     });
 });

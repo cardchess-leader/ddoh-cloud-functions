@@ -1,5 +1,5 @@
 /* eslint-disable require-jsdoc */
-const IS_PRODUCTION = true;
+const IS_PRODUCTION = false;
 
 const HumorCategoryList = [
     "DAD_JOKES",
