@@ -1,5 +1,5 @@
 /* eslint-disable require-jsdoc */
-const IS_PRODUCTION = false;
+const IS_PRODUCTION = true;
 
 const HumorCategoryList = [
     "DAD_JOKES",
@@ -84,10 +84,10 @@ function validateRequestBody(requestBody) {
         return { statusCode: 400, error: "Invalid type for context_list. Expected an array of strings." };
     }
 
-    // created_date is required
-    // created_date should match the yyyy-mm-dd format
-    if (typeof requestBody.created_date !== "string" || !dateRegex.test(requestBody.created_date)) {
-        return { statusCode: 400, error: "Invalid type for created_date. Expected format 'yyyy-mm-dd'." };
+    // release_date is required
+    // release_date should match the yyyy-mm-dd format
+    if (typeof requestBody.release_date !== "string" || !dateRegex.test(requestBody.release_date)) {
+        return { statusCode: 400, error: "Invalid type for release_date. Expected format 'yyyy-mm-dd'." };
     }
 
     // index is required

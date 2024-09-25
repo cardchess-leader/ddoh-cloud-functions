@@ -34,7 +34,7 @@ const corsHandler = cors({
 });
 
 /** Helper functions */
-function getStoragePathFromUrl(publicUrl) {
+function getStoragePathFromUrl(publicUrl) { // Only for bundle > covers images path
     // Regular expression to match the pattern 'bundles/covers/{filename}'
     const regex = /bundles\/covers\/([^?]+)/;
     const match = publicUrl.match(regex);
@@ -50,9 +50,9 @@ const removeImage = async (storagePath) => {
     try {
         const file = bucket.file(storagePath);
         await file.delete();
-        console.log("Cover image deleted successfully.");
+        console.log("Bundle cover image deleted successfully.");
     } catch (error) {
-        console.error("Error deleting cover image:", error);
+        console.error("Error deleting bundle cover image:", error);
     }
 }
 /** End of helper functions */
@@ -77,10 +77,10 @@ exports.addDailyHumors = onRequest(async (req, res) => {
             await docRef.set(payload);
 
             // Send a success response
-            res.status(200).json({ message: "Document added successfully." });
+            res.status(200).json({ message: "Humor added successfully." });
         } catch (error) {
-            console.error("Error adding document:", error);
-            res.status(500).json({ error: "Could not add the document." });
+            console.error("Error adding humor:", error);
+            res.status(500).json({ error: "Could not add the humor." });
         }
     });
 });
@@ -103,17 +103,17 @@ exports.updateDailyHumors = onRequest(async (req, res) => {
             // Check if document exists
             const docSnapshot = await docRef.get();
             if (!docSnapshot.exists) {
-                return res.status(404).json({ error: "Document does not exist." });
+                return res.status(404).json({ error: "Humor does not exist." });
             }
 
             // Update specific fields in the document
             await docRef.update(payload);
 
             // Send a success response
-            res.status(200).json({ message: "Document updated successfully." });
+            res.status(200).json({ message: "Humor updated successfully." });
         } catch (error) {
-            console.error("Error updating document:", error);
-            res.status(500).json({ error: "Could not update the document." });
+            console.error("Error updating humor:", error);
+            res.status(500).json({ error: "Could not update the humor." });
         }
     });
 });
@@ -124,41 +124,71 @@ exports.getDailyHumors = onRequest(async (req, res) => {
         try {
             const requestedCate = req.query.category; // string
             // Category validation
-            if (requestedCate && !HumorCategoryList.includes(requestedCate)) {
-                logger.info("Invalid category.");
-                return res.status(400).json({ error: "Invalid category" });
+            if (!requestedCate || !HumorCategoryList.includes(requestedCate)) {
+                logger.info("Invalid humor category.");
+                return res.status(400).json({ error: "Invalid humor category" });
             }
 
-            let docsSnapshotRef = getFirestore().collection("Humors").where("source", "=", "Daily Dose of Humors").where("index", ">=", 0);
-            if (req.query.category) {
-                docsSnapshotRef = docsSnapshotRef.where("category", "=", req.query.category);
-            }
-            if (req.query.date) {
-                docsSnapshotRef = docsSnapshotRef.where("created_date", "=", req.query.date);
-            } else {
-                // Get today"s date in UTC format (yyyy-mm-dd)
-                const todayDate = getDateInUTC(new Date());
-                const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
-                docsSnapshotRef = docsSnapshotRef
-                    .where("created_date", ">", sevenDaysAgoDate)  // Start date filter
-                    .where("created_date", "<=", todayDate)    // End date filter
-            }
+            let docsSnapshotRef = getFirestore().collection("Humors").where("source", "==", "Daily Dose of Humors").where("active", "==", true).where("category", "==", req.query.category);
+
+            // Get today"s date in UTC format (yyyy-mm-dd)
+            const todayDate = getDateInUTC(new Date());
+            const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
+            docsSnapshotRef = docsSnapshotRef
+                .where("release_date", ">", sevenDaysAgoDate)  // Start date filter
+                .where("release_date", "<=", todayDate)    // End date filter
+
             const docsSnapshot = await docsSnapshotRef
-                .orderBy("created_date", "desc")
+                .orderBy("release_date", "desc")
                 .orderBy("index", "asc")
                 .get();
 
             const dailyHumorList = docsSnapshot.docs.map(doc => ({
                 ...doc.data(),
-                is_new: doc.data().date === getDateInUTC(new Date()),
+                is_new: doc.data().release_date === getDateInUTC(new Date()),
             }))
             res.json({ humorList: dailyHumorList });
         } catch (error) {
             logger.error("Error fetching daily humors:", error);
-            res.status(500).json({ error: "Could not fetch humors..." });
+            res.status(500).json({ error: "Could not fetch daily humors..." });
         }
     });
 });
+
+// For both admin & flutter app use
+exports.getHumors = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            let docsSnapshotRef = getFirestore().collection("Humors");
+            if (req.query.category) {
+                if (req.query.category) {
+                    docsSnapshotRef = docsSnapshotRef.where("category", "==", req.query.category);
+                }
+            }
+            if (req.query.date) {
+                docsSnapshotRef = docsSnapshotRef.where("release_date", "==", req.query.date);
+            }
+            if (req.query.active) {
+                docsSnapshotRef = docsSnapshotRef.where("active", "==", req.query.active === "true");
+            }
+            const docsSnapshot = await docsSnapshotRef
+                .orderBy("release_date", "desc")
+                .orderBy("index", "asc")
+                .get();
+
+            const dailyHumorList = docsSnapshot.docs.map(doc => ({
+                ...doc.data(),
+                is_new: doc.data().release_date === getDateInUTC(new Date()),
+            }))
+            res.json({ humorList: dailyHumorList });
+        } catch (error) {
+            logger.error("Error fetching daily humors:", error);
+            res.status(500).json({ error: "Could not fetch daily humors..." });
+        }
+    });
+});
+
+
 
 // For flutter app use
 exports.userSubmitDailyHumors = onRequest(async (req, res) => {
@@ -179,7 +209,7 @@ exports.userSubmitDailyHumors = onRequest(async (req, res) => {
             // Send a success response
             res.status(200).json({ message: "Humor submission successful." });
         } catch (error) {
-            console.error("Error adding document:", error);
+            console.error("Error adding user submitted humor:", error);
             res.status(500).json({ error: "Unexpected error. Please try again later." });
         }
     });
@@ -206,13 +236,13 @@ exports.resetAppState = onRequest(async (req, res) => {
 // Scheduled function for notification
 exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
     const db = getFirestore();
-    const snapshot = await db.collection("Daily").doc(getDateInUTC(addDaysToDate(new Date(), 1 / 24))).collection("DAD_JOKES").where("index", "==", 0).limit(1).get();
+    const snapshot = await db.collection("Humors").where("category", "==", "DAD_JOKES").where("release_date", "==", getDateInUTC(new Date())).where("index", "==", 0).limit(1).get();
     if (snapshot.empty) {
         return null;
     } else {
         const message = {
             notification: {
-                title: "New humors just arrived!",
+                title: "New humors have just arrived!",
                 body: snapshot.docs[0].data().context,
             },
             topic: "daily_humor",  // The topic name to send the notification to
@@ -220,9 +250,9 @@ exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
         try {
             // Send the notification to the topic
             const response = await admin.messaging().send(message);
-            console.log("Successfully sent message:", response);
+            console.log("Successfully sent humor notification:", response);
         } catch (error) {
-            console.log("Error sending message:", error);
+            console.log("Error sending humor notification:", error);
         }
     }
     return null;
@@ -234,7 +264,6 @@ exports.getBundleList = onRequest(async (req, res) => {
         try {
             const snapshot = await getFirestore()
                 .collection("Bundles")
-                .where("active", "==", true)
                 .get();
 
             if (snapshot.empty) {
@@ -242,8 +271,7 @@ exports.getBundleList = onRequest(async (req, res) => {
             }
 
             const bundleList = snapshot.docs.map(doc => {
-                const data = doc.data();
-                return data.uuid; // Return UUID directly
+                return doc.data();
             });
 
             res.json({ bundleList });
@@ -286,10 +314,10 @@ exports.getBundleDetail = onRequest(async (req, res) => {
 
 // For admin app use
 exports.updateBundleCoverImages = onRequest(async (req, res) => {
-    const fields = {}; // Object to store form fields (like bundle_uuid, method, index)
-    const updateBundleInfo = async (bundle_uuid, method, index, publicPath) => {
+    const fields = {}; // Object to store form fields (like uuid, method, index)
+    const updateBundleInfo = async (uuid, method, index, publicPath) => {
         try {
-            const bundleDoc = await admin.firestore().collection("Bundles").doc(bundle_uuid).get();
+            const bundleDoc = await admin.firestore().collection("Bundles").doc(uuid).get();
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
@@ -303,7 +331,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
                 coverImgList.push(publicPath);
             }
 
-            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ cover_img_list: coverImgList });
+            await admin.firestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
         } catch (error) {
             console.error("Error updating bundle info:", error);
             throw error;
@@ -324,13 +352,11 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 
     // Capture form fields
     busboy.on('field', (fieldname, value) => {
-        console.log(`Field [${fieldname}]: value: ${value}`);
         fields[fieldname] = value; // Save field values to the fields object
     });
 
     // Capture file upload
     busboy.on('file', (fieldname, fileStream, file, encoding, mimetype) => {
-        console.log("??");
         const fileExtension = path.extname(file.filename);
         const newFileName = `${uuidv4()}${fileExtension}`;
         const storagePath = `bundles/covers/${newFileName}`;
@@ -351,15 +377,17 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 
         blobStream.on('finish', async () => {
             try {
-                await fileUpload.makePublic();
-                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
-                const { bundle_uuid, method, index } = fields;
-
-                if (!bundle_uuid || !["add", "delete", "replace"].includes(method)) {
+                const { uuid, method, index, passwordHash } = fields;
+                if (!uuid || !["add", "delete", "replace"].includes(method)) { // Input validation
                     return res.status(400).json({ error: 'Invalid input' });
                 }
+                if (!await varifyAdminPassword(passwordHash)) { // Password validation
+                    return res.status(401).json("Wrong password!");
+                }
+                await fileUpload.makePublic();
+                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
-                await updateBundleInfo(bundle_uuid, method, parseInt(index, 10), publicPath);
+                await updateBundleInfo(uuid, method, parseInt(index, 10), publicPath);
 
                 return res.status(200).json({
                     message: 'File uploaded successfully',
@@ -387,15 +415,15 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 
 // For admin app use
 exports.updateThumbnailImage = onRequest(async (req, res) => {
-    const fields = {}; // Object to store form fields (like bundle_uuid, method, index)
-    const updateBundleInfo = async (bundle_uuid, publicPath) => {
+    const fields = {}; // Object to store form fields (like uuid, method, index)
+    const updateBundleInfo = async (uuid, publicPath) => {
         try {
-            const bundleDoc = await admin.firestore().collection("Bundles").doc(bundle_uuid).get();
+            const bundleDoc = await admin.firestore().collection("Bundles").doc(uuid).get();
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
 
-            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ thumbnail_path: publicPath });
+            await admin.firestore().collection("Bundles").doc(uuid).update({ thumbnail_path: publicPath });
         } catch (error) {
             console.error("Error updating bundle info:", error);
             throw error;
@@ -441,19 +469,17 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
 
         blobStream.on('finish', async () => {
             try {
-                await fileUpload.makePublic();
-                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
-                const { bundle_uuid, passwordHash } = fields;
-
-                if (!bundle_uuid) {
+                const { uuid, passwordHash } = fields;
+                if (!uuid) { // Input validation
                     return res.status(400).json({ error: 'Invalid input' });
                 }
-
-                if (!await varifyAdminPassword(passwordHash)) {
+                if (!await varifyAdminPassword(passwordHash)) { // Password validation
                     return res.status(401).json("Wrong password!");
                 }
+                await fileUpload.makePublic();
+                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
-                await updateBundleInfo(bundle_uuid, publicPath);
+                await updateBundleInfo(uuid, publicPath);
 
                 return res.status(200).json({
                     message: 'File uploaded successfully',
@@ -483,13 +509,13 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
 exports.removeBundleCoverImages = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const { bundle_uuid, index, passwordHash } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) {
+            const { uuid, index, passwordHash } = req.body;
+            if (!await varifyAdminPassword(passwordHash)) { // Password validation
                 return res.status(401).json("Wrong password!");
             }
 
             /** Add validation code here */
-            const bundleDoc = await getFirestore().collection("Bundles").doc(bundle_uuid).get();
+            const bundleDoc = await getFirestore().collection("Bundles").doc(uuid).get();
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
@@ -497,7 +523,7 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
             const storagePath = getStoragePathFromUrl(coverImgList[index]);
             await removeImage(storagePath);
             coverImgList.splice(index, 1);
-            await admin.firestore().collection("Bundles").doc(bundle_uuid).update({ cover_img_list: coverImgList });
+            await admin.firestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
             // Send a success response
             res.status(200).json({ message: "Cover image removed successfully." });
         } catch (error) {
@@ -525,7 +551,7 @@ exports.addHumorBundle = onRequest(async (req, res) => {
                 bundle_name: payload.bundle_name,
                 category: payload.category,
                 cover_img_list: [],
-                created_date: payload.created_date,
+                release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
                 set_list: payload.set_list,
@@ -564,7 +590,7 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
                 active: payload.active,
                 bundle_name: payload.bundle_name,
                 category: payload.category,
-                created_date: payload.created_date,
+                release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
                 set_list: payload.set_list,
