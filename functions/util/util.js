@@ -1,4 +1,3 @@
-/* eslint-disable require-jsdoc */
 const IS_PRODUCTION = true;
 
 const HumorCategoryList = [

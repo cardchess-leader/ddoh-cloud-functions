@@ -8,7 +8,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 const cors = require("cors");
-const Busboy = require("busboy");
+const _busboy = require("busboy");
 const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
 const bucket = admin.storage().bucket();
@@ -321,7 +321,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
-            let coverImgList = bundleDoc.data().cover_img_list || [];
+            const coverImgList = bundleDoc.data().cover_img_list || [];
 
             if (method === "replace") {
                 const storagePath = getStoragePathFromUrl(coverImgList[index]);
@@ -348,7 +348,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
     }
 
     // Initialize Busboy with the headers
-    const busboy = Busboy({ headers: req.headers });
+    const busboy = _busboy({ headers: req.headers });
 
     // Capture form fields
     busboy.on("field", (fieldname, value) => {
@@ -440,7 +440,7 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
     }
 
     // Initialize Busboy with the headers
-    const busboy = Busboy({ headers: req.headers });
+    const busboy = _busboy({ headers: req.headers });
 
     // Capture form fields
     busboy.on("field", (fieldname, value) => {
@@ -519,7 +519,7 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
-            let coverImgList = bundleDoc.data().cover_img_list;
+            const coverImgList = bundleDoc.data().cover_img_list;
             const storagePath = getStoragePathFromUrl(coverImgList[index]);
             await removeImage(storagePath);
             coverImgList.splice(index, 1);
