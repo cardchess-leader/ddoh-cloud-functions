@@ -5,10 +5,10 @@ const { initializeApp } = require("firebase-admin/app");
 const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { v4: uuidv4 } = require('uuid');
-const path = require('path');
+const { v4: uuidv4 } = require("uuid");
+const path = require("path");
 const cors = require("cors");
-const Busboy = require('busboy');
+const Busboy = require("busboy");
 const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
 const bucket = admin.storage().bucket();
@@ -35,7 +35,7 @@ const corsHandler = cors({
 
 /** Helper functions */
 function getStoragePathFromUrl(publicUrl) { // Only for bundle > covers images path
-    // Regular expression to match the pattern 'bundles/covers/{filename}'
+    // Regular expression to match the pattern "bundles/covers/{filename}"
     const regex = /bundles\/covers\/([^?]+)/;
     const match = publicUrl.match(regex);
 
@@ -338,25 +338,25 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
         }
     }
 
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method Not Allowed" });
     }
 
     // Capture the buffered body from req.rawBody
     if (!req.rawBody) {
-        return res.status(400).json({ error: 'Request body is missing' });
+        return res.status(400).json({ error: "Request body is missing" });
     }
 
     // Initialize Busboy with the headers
     const busboy = Busboy({ headers: req.headers });
 
     // Capture form fields
-    busboy.on('field', (fieldname, value) => {
+    busboy.on("field", (fieldname, value) => {
         fields[fieldname] = value; // Save field values to the fields object
     });
 
     // Capture file upload
-    busboy.on('file', (fieldname, fileStream, file, encoding, mimetype) => {
+    busboy.on("file", (fieldname, fileStream, file, encoding, mimetype) => {
         const fileExtension = path.extname(file.filename);
         const newFileName = `${uuidv4()}${fileExtension}`;
         const storagePath = `bundles/covers/${newFileName}`;
@@ -370,16 +370,16 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 
         fileStream.pipe(blobStream);
 
-        blobStream.on('error', (error) => {
+        blobStream.on("error", (error) => {
             console.error("BlobStream error: ", error);
-            return res.status(500).json({ error: 'Upload failed', details: error });
+            return res.status(500).json({ error: "Upload failed", details: error });
         });
 
-        blobStream.on('finish', async () => {
+        blobStream.on("finish", async () => {
             try {
                 const { uuid, method, index, passwordHash } = fields;
                 if (!uuid || !["add", "delete", "replace"].includes(method)) { // Input validation
-                    return res.status(400).json({ error: 'Invalid input' });
+                    return res.status(400).json({ error: "Invalid input" });
                 }
                 if (!await varifyAdminPassword(passwordHash)) { // Password validation
                     return res.status(401).json("Wrong password!");
@@ -390,23 +390,23 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
                 await updateBundleInfo(uuid, method, parseInt(index, 10), publicPath);
 
                 return res.status(200).json({
-                    message: 'File uploaded successfully',
+                    message: "File uploaded successfully",
                     imageUrl: publicPath,
                 });
             } catch (error) {
                 console.error("Upload process error: ", error)
-                return res.status(500).json({ error: 'Error processing file upload', details: error });
+                return res.status(500).json({ error: "Error processing file upload", details: error });
             }
         });
     });
 
-    busboy.on('finish', () => {
-        console.log('File upload completed');
+    busboy.on("finish", () => {
+        console.log("File upload completed");
     });
 
-    busboy.on('error', (err) => {
-        console.error('Busboy error:', err);
-        return res.status(500).json({ error: 'File upload failed', details: err });
+    busboy.on("error", (err) => {
+        console.error("Busboy error:", err);
+        return res.status(500).json({ error: "File upload failed", details: err });
     });
 
     // Instead of piping req, use busboy.end() and pass the buffered body
@@ -430,25 +430,25 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
         }
     }
 
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method Not Allowed' });
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method Not Allowed" });
     }
 
     // Capture the buffered body from req.rawBody
     if (!req.rawBody) {
-        return res.status(400).json({ error: 'Request body is missing' });
+        return res.status(400).json({ error: "Request body is missing" });
     }
 
     // Initialize Busboy with the headers
     const busboy = Busboy({ headers: req.headers });
 
     // Capture form fields
-    busboy.on('field', (fieldname, value) => {
+    busboy.on("field", (fieldname, value) => {
         fields[fieldname] = value; // Save field values to the fields object
     });
 
     // Capture file upload
-    busboy.on('file', (fieldname, fileStream, file, encoding, mimetype) => {
+    busboy.on("file", (fieldname, fileStream, file, encoding, mimetype) => {
         const fileExtension = path.extname(file.filename);
         const newFileName = `${uuidv4()}${fileExtension}`;
         const storagePath = `bundles/thumbnails/${newFileName}`;
@@ -462,16 +462,16 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
 
         fileStream.pipe(blobStream);
 
-        blobStream.on('error', (error) => {
+        blobStream.on("error", (error) => {
             console.error("BlobStream error: ", error);
-            return res.status(500).json({ error: 'Upload failed', details: error });
+            return res.status(500).json({ error: "Upload failed", details: error });
         });
 
-        blobStream.on('finish', async () => {
+        blobStream.on("finish", async () => {
             try {
                 const { uuid, passwordHash } = fields;
                 if (!uuid) { // Input validation
-                    return res.status(400).json({ error: 'Invalid input' });
+                    return res.status(400).json({ error: "Invalid input" });
                 }
                 if (!await varifyAdminPassword(passwordHash)) { // Password validation
                     return res.status(401).json("Wrong password!");
@@ -482,23 +482,23 @@ exports.updateThumbnailImage = onRequest(async (req, res) => {
                 await updateBundleInfo(uuid, publicPath);
 
                 return res.status(200).json({
-                    message: 'File uploaded successfully',
+                    message: "File uploaded successfully",
                     imageUrl: publicPath,
                 });
             } catch (error) {
                 console.error("Upload process error: ", error)
-                return res.status(500).json({ error: 'Error processing file upload', details: error });
+                return res.status(500).json({ error: "Error processing file upload", details: error });
             }
         });
     });
 
-    busboy.on('finish', () => {
-        console.log('File upload completed');
+    busboy.on("finish", () => {
+        console.log("File upload completed");
     });
 
-    busboy.on('error', (err) => {
-        console.error('Busboy error:', err);
-        return res.status(500).json({ error: 'File upload failed', details: err });
+    busboy.on("error", (err) => {
+        console.error("Busboy error:", err);
+        return res.status(500).json({ error: "File upload failed", details: err });
     });
 
     // Instead of piping req, use busboy.end() and pass the buffered body
@@ -555,7 +555,7 @@ exports.addHumorBundle = onRequest(async (req, res) => {
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
                 set_list: payload.set_list,
-                thumbnail_path: '',
+                thumbnail_path: "",
                 uuid: payload.uuid,
             });
 
