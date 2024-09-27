@@ -15,6 +15,7 @@ const HumorCategoryList = [
 
 const CorsOriginList = [ // Comment out localhost:3000 in production mode
     IS_PRODUCTION ? "https://ddoh-admin-app--daily-dose-of-humors.us-central1.hosted.app" : "http://localhost:3000",
+    "https://storage.googleapis.com/daily-dose-of-humors.appspot.com",
 ];
 
 function getDateInUTC(date) {
@@ -60,9 +61,7 @@ function validateUserSubmitBody(requestBody) {
 
 function validateRequestBody(requestBody) {
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (typeof requestBody.date !== "string" || !dateRegex.test(requestBody.date)) {
-        return { statusCode: 400, error: "Invalid type for query date. Expected format 'yyyy-mm-dd'." };
-    }
+
     // author is not required
     if (typeof requestBody.author !== "string") {
         return { statusCode: 400, error: "Invalid type for author. Expected non-empty string." };
