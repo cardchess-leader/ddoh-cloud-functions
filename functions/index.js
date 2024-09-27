@@ -414,98 +414,6 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
 });
 
 // For admin app use
-exports.updateThumbnailImage = onRequest(async (req, res) => {
-    const fields = {}; // Object to store form fields (like uuid, method, index)
-    const updateBundleInfo = async (uuid, publicPath) => {
-        try {
-            const bundleDoc = await admin.firestore().collection("Bundles").doc(uuid).get();
-            if (!bundleDoc.exists) {
-                throw new Error("Bundle not found");
-            }
-
-            await admin.firestore().collection("Bundles").doc(uuid).update({ thumbnail_path: publicPath });
-        } catch (error) {
-            console.error("Error updating bundle info:", error);
-            throw error;
-        }
-    }
-
-    if (req.method !== "POST") {
-        return res.status(405).json({ error: "Method Not Allowed" });
-    }
-
-    // Capture the buffered body from req.rawBody
-    if (!req.rawBody) {
-        return res.status(400).json({ error: "Request body is missing" });
-    }
-
-    // Initialize Busboy with the headers
-    const busboy = _busboy({ headers: req.headers });
-
-    // Capture form fields
-    busboy.on("field", (fieldname, value) => {
-        fields[fieldname] = value; // Save field values to the fields object
-    });
-
-    // Capture file upload
-    busboy.on("file", (fieldname, fileStream, file, encoding, mimetype) => {
-        const fileExtension = path.extname(file.filename);
-        const newFileName = `${uuidv4()}${fileExtension}`;
-        const storagePath = `bundles/thumbnails/${newFileName}`;
-        const fileUpload = bucket.file(storagePath);
-
-        const blobStream = fileUpload.createWriteStream({
-            metadata: {
-                contentType: mimetype,
-            },
-        });
-
-        fileStream.pipe(blobStream);
-
-        blobStream.on("error", (error) => {
-            console.error("BlobStream error: ", error);
-            return res.status(500).json({ error: "Upload failed", details: error });
-        });
-
-        blobStream.on("finish", async () => {
-            try {
-                const { uuid, passwordHash } = fields;
-                if (!uuid) { // Input validation
-                    return res.status(400).json({ error: "Invalid input" });
-                }
-                if (!await varifyAdminPassword(passwordHash)) { // Password validation
-                    return res.status(401).json("Wrong password!");
-                }
-                await fileUpload.makePublic();
-                const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
-
-                await updateBundleInfo(uuid, publicPath);
-
-                return res.status(200).json({
-                    message: "File uploaded successfully",
-                    imageUrl: publicPath,
-                });
-            } catch (error) {
-                console.error("Upload process error: ", error)
-                return res.status(500).json({ error: "Error processing file upload", details: error });
-            }
-        });
-    });
-
-    busboy.on("finish", () => {
-        console.log("File upload completed");
-    });
-
-    busboy.on("error", (err) => {
-        console.error("Busboy error:", err);
-        return res.status(500).json({ error: "File upload failed", details: err });
-    });
-
-    // Instead of piping req, use busboy.end() and pass the buffered body
-    busboy.end(req.rawBody);
-});
-
-// For admin app use
 exports.removeBundleCoverImages = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
@@ -549,13 +457,14 @@ exports.addHumorBundle = onRequest(async (req, res) => {
             await docRef.set({
                 active: payload.active,
                 bundle_name: payload.bundle_name,
+                bundle_description: payload.bundle_description,
                 category: payload.category,
                 cover_img_list: [],
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
                 set_list: payload.set_list,
-                thumbnail_path: "",
+                product_id: payload.product_id,
                 uuid: payload.uuid,
             });
 
@@ -589,11 +498,13 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
             await docRef.update({
                 active: payload.active,
                 bundle_name: payload.bundle_name,
+                bundle_description: payload.bundle_description,
                 category: payload.category,
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
                 set_list: payload.set_list,
+                product_id: payload.product_id,
             });
 
             // Send a success response

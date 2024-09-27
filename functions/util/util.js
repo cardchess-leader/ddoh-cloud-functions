@@ -6,7 +6,7 @@ const HumorCategoryList = [
     "ONE_LINERS",
     "DARK_HUMORS",
     "TRICKY_RIDDLES",
-    "OX_QUIZ",
+    "TRIVIA_QUIZ",
     "FUNNY_QUOTES",
     "STORY_JOKES",
     "DETECTIVE_PUZZLES",
