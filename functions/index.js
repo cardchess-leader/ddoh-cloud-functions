@@ -284,6 +284,31 @@ exports.getBundleList = onRequest(async (req, res) => {
 });
 
 // For admin app use
+exports.getBundleSetList = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const snapshot = await getFirestore()
+                .collection("Bundles_Set")
+                .get();
+
+            if (snapshot.empty) {
+                return res.json({ bundleSetList: [] }); // Early return for empty collection
+            }
+
+            const bundleSetList = snapshot.docs.map(doc => {
+                return doc.data();
+            });
+
+            res.json({ bundleSetList });
+
+        } catch (error) {
+            logger.error("Error fetching bundle set list:", error);
+            res.status(500).json({ error: "Could not fetch bundle set list..." });
+        }
+    });
+});
+
+// For admin app use
 exports.getBundleDetail = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
