@@ -6,6 +6,7 @@ const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { v4: uuidv4 } = require("uuid");
+const xlsx = require("xlsx");
 const path = require("path");
 const cors = require("cors");
 const _busboy = require("busboy");
@@ -571,6 +572,89 @@ exports.getBundleListInSet = onRequest(async (req, res) => {
         } catch (error) {
             logger.error("Error fetching bundle list:", error);
             res.status(500).json({ error: "Could not fetch bundle list..." });
+        }
+    });
+});
+
+
+exports.humorBatchUpload = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const { passwordHash, fileName } = req.body;
+
+            // Check the password
+            if (!await verifyAdminPassword(passwordHash)) {
+                return res.status(401).json({ success: false, message: "Unauthorized: Wrong password!" });
+            }
+
+            // Check if fileName is provided
+            if (!fileName) {
+                return res.status(400).json({ success: false, message: "File name is required." });
+            }
+
+            const tempFilePath = path.join(os.tmpdir(), fileName);
+
+            // Download the file from Firebase Storage
+            await bucket.file(`excel/${fileName}`).download({ destination: tempFilePath });
+            console.log("File downloaded locally to:", tempFilePath);
+
+            // Parse the Excel file
+            const workbook = xlsx.readFile(tempFilePath);
+            const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+            const worksheet = workbook.Sheets[sheetName];
+
+            // Convert sheet to JSON, using the first row as field names
+            const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+            const headers = rows.shift(); // Extract headers from the first row
+
+            // Insert each row into Firestore, limit to 1000 rows
+            let batch = firestore.batch();
+            let batchCount = 0;
+            let processedRowCount = 0;
+
+            for (const row of rows) {
+                if (processedRowCount >= 1000) {
+                    console.log("Row limit of 1000 reached. Ignoring the rest.");
+                    break;
+                }
+
+                const uuid = uuidv4();
+                const docData = {};
+
+                headers.forEach((header, index) => {
+                    docData[header] = row[index] !== undefined ? row[index] : null; // Map each column to its header
+                });
+                docData.context_list = [];
+                docData.uuid = uuid;
+
+                const docRef = firestore.collection("Humors").doc(uuid);
+                batch.set(docRef, docData);
+                batchCount++;
+                processedRowCount++;
+
+                // Commit batch if it reaches 500 writes
+                if (batchCount === 500) {
+                    await batch.commit();
+                    console.log("Batch of 500 committed.");
+                    batch = firestore.batch(); // Reset the batch
+                    batchCount = 0;
+                }
+            }
+
+            // Commit the remaining batch
+            if (batchCount > 0) {
+                await batch.commit();
+                console.log(`Final batch of ${batchCount} committed.`);
+            }
+
+            // Clean up: remove the file from the temporary directory
+            fs.unlinkSync(tempFilePath);
+
+            // Send a success response
+            return res.status(200).json({ success: true, message: "Excel data uploaded to Firestore successfully." });
+        } catch (error) {
+            console.error("Error processing file:", error);
+            return res.status(500).json({ success: false, message: "Failed to process Excel file.", error: error.message });
         }
     });
 });
