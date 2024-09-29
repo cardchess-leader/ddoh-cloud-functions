@@ -481,8 +481,8 @@ exports.addHumorBundle = onRequest(async (req, res) => {
             // Add or set the document in the subcollection
             await docRef.set({
                 active: payload.active,
-                bundle_name: payload.bundle_name,
-                bundle_description: payload.bundle_description,
+                title: payload.title,
+                description: payload.description,
                 category: payload.category,
                 cover_img_list: [],
                 release_date: payload.release_date,
@@ -522,8 +522,8 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
             // Update specific fields in the document
             await docRef.update({
                 active: payload.active,
-                bundle_name: payload.bundle_name,
-                bundle_description: payload.bundle_description,
+                title: payload.title,
+                description: payload.description,
                 category: payload.category,
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
@@ -537,6 +537,40 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
         } catch (error) {
             console.error("Error updating bundle:", error);
             res.status(500).json({ error: "Could not bundle the document." });
+        }
+    });
+});
+
+// For flutter app use
+exports.getBundleListInSet = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const setUuid = req.query.uuid; // string
+
+            const snapshot = await getFirestore()
+                .collection("Bundles")
+                .where("set_list", "array-contains", setUuid)
+                .where("active", "==", true)
+                .get();
+
+            if (snapshot.empty) {
+                return res.json({ bundleList: [] }); // Early return for empty collection
+            }
+
+            const bundleList = snapshot.docs.map(doc => {
+                const bundle = doc.data();
+                return {
+                    ...bundle,
+                    // later add price string info or any additional info hereafter!
+                    price: "$2.99",
+                };
+            });
+
+            res.json({ bundleList });
+
+        } catch (error) {
+            logger.error("Error fetching bundle list:", error);
+            res.status(500).json({ error: "Could not fetch bundle list..." });
         }
     });
 });
