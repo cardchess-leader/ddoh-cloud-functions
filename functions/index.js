@@ -6,15 +6,17 @@ const { getDatabase } = require("firebase-admin/database");
 const { getFirestore } = require("firebase-admin/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { v4: uuidv4 } = require("uuid");
-const xlsx = require("xlsx");
 const path = require("path");
+// const xlsx = require("xlsx");
+// const os = require("os");
+// const fs = require("fs");
 const cors = require("cors");
 const _busboy = require("busboy");
 const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
 initializeApp();
 const bucket = admin.storage().bucket();
 
-const varifyAdminPassword = async (passwordHash) => {
+const verifyAdminPassword = async (passwordHash) => {
     if (!IS_PRODUCTION) {
         return true;
     }
@@ -63,7 +65,7 @@ exports.addDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const { passwordHash, ...payload } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) {
+            if (!await verifyAdminPassword(passwordHash)) {
                 return res.status(401).json("Wrong password!");
             }
             const validatePayload = validateRequestBody(payload);
@@ -91,7 +93,7 @@ exports.updateDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const { passwordHash, ...payload } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) {
+            if (!await verifyAdminPassword(passwordHash)) {
                 return res.status(401).json("Wrong password!");
             }
             const validatePayload = validateRequestBody(payload);
@@ -407,7 +409,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
                 if (!uuid || !["add", "delete", "replace"].includes(method)) { // Input validation
                     return res.status(400).json({ error: "Invalid input" });
                 }
-                if (!await varifyAdminPassword(passwordHash)) { // Password validation
+                if (!await verifyAdminPassword(passwordHash)) { // Password validation
                     return res.status(401).json("Wrong password!");
                 }
                 await fileUpload.makePublic();
@@ -444,7 +446,7 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const { uuid, index, passwordHash } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) { // Password validation
+            if (!await verifyAdminPassword(passwordHash)) { // Password validation
                 return res.status(401).json("Wrong password!");
             }
 
@@ -472,7 +474,7 @@ exports.addHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const { passwordHash, ...payload } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) {
+            if (!await verifyAdminPassword(passwordHash)) {
                 return res.status(401).json("Wrong password!");
             }
 
@@ -508,7 +510,7 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const { passwordHash, ...payload } = req.body;
-            if (!await varifyAdminPassword(passwordHash)) {
+            if (!await verifyAdminPassword(passwordHash)) {
                 return res.status(401).json("Wrong password!");
             }
             const db = getFirestore();
@@ -577,84 +579,92 @@ exports.getBundleListInSet = onRequest(async (req, res) => {
 });
 
 
-exports.humorBatchUpload = onRequest(async (req, res) => {
-    corsHandler(req, res, async () => {
-        try {
-            const { passwordHash, fileName } = req.body;
+// exports.humorBatchUpload = onRequest(async (req, res) => {
+//     corsHandler(req, res, async () => {
+//         try {
+//             const { passwordHash, fileName } = req.body;
 
-            // Check the password
-            if (!await verifyAdminPassword(passwordHash)) {
-                return res.status(401).json({ success: false, message: "Unauthorized: Wrong password!" });
-            }
+//             console.log("HumorBatchUpload just started running...");
 
-            // Check if fileName is provided
-            if (!fileName) {
-                return res.status(400).json({ success: false, message: "File name is required." });
-            }
+//             // Check the password
+//             if (!await verifyAdminPassword(passwordHash)) {
+//                 return res.status(401).json({ success: false, message: "Unauthorized: Wrong password!" });
+//             }
 
-            const tempFilePath = path.join(os.tmpdir(), fileName);
+//             // Check if fileName is provided
+//             if (!fileName) {
+//                 return res.status(400).json({ success: false, message: "File name is required." });
+//             }
 
-            // Download the file from Firebase Storage
-            await bucket.file(`excel/${fileName}`).download({ destination: tempFilePath });
-            console.log("File downloaded locally to:", tempFilePath);
+//             const tempFilePath = path.join(os.tmpdir(), fileName);
 
-            // Parse the Excel file
-            const workbook = xlsx.readFile(tempFilePath);
-            const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
-            const worksheet = workbook.Sheets[sheetName];
+//             // Download the file from Firebase Storage
+//             await bucket.file(`excel/${fileName}`).download({ destination: tempFilePath });
+//             console.log("File downloaded locally to:", tempFilePath);
 
-            // Convert sheet to JSON, using the first row as field names
-            const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
-            const headers = rows.shift(); // Extract headers from the first row
+//             // Parse the Excel file
+//             const workbook = xlsx.readFile(tempFilePath);
+//             const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
+//             const worksheet = workbook.Sheets[sheetName];
 
-            // Insert each row into Firestore, limit to 1000 rows
-            let batch = firestore.batch();
-            let batchCount = 0;
-            let processedRowCount = 0;
+//             // Convert sheet to JSON, using the first row as field names
+//             const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+//             const headers = rows.shift(); // Extract headers from the first row
 
-            for (const row of rows) {
-                if (processedRowCount >= 1000) {
-                    console.log("Row limit of 1000 reached. Ignoring the rest.");
-                    break;
-                }
+//             // Insert each row into Firestore, limit to 1000 rows
+//             let batch = admin.firestore().batch();
+//             let batchCount = 0;
+//             let processedRowCount = 0;
 
-                const uuid = uuidv4();
-                const docData = {};
+//             for (const row of rows) {
+//                 if (processedRowCount >= 1000) {
+//                     console.log("Row limit of 1000 reached. Ignoring the rest.");
+//                     break;
+//                 }
 
-                headers.forEach((header, index) => {
-                    docData[header] = row[index] !== undefined ? row[index] : null; // Map each column to its header
-                });
-                docData.context_list = [];
-                docData.uuid = uuid;
+//                 const uuid = uuidv4();
+//                 const docData = {};
 
-                const docRef = firestore.collection("Humors").doc(uuid);
-                batch.set(docRef, docData);
-                batchCount++;
-                processedRowCount++;
+//                 headers.forEach((header, index) => {
+//                     if (["author", "category", "context", "punchline", "release_date", "sender", "source"].includes(header)) {
+//                         docData[header] = row[index] !== undefined ? row[index] : "";
+//                     } else if (header === "index") {
+//                         docData[header] = row[index] !== undefined ? +row[index] : 0;
+//                     } else if (header === "active") {
+//                         docData[header] = row[index] !== undefined ? row[index] === "1" : false;
+//                     }
+//                 });
+//                 docData.context_list = [];
+//                 docData.uuid = uuid;
 
-                // Commit batch if it reaches 500 writes
-                if (batchCount === 500) {
-                    await batch.commit();
-                    console.log("Batch of 500 committed.");
-                    batch = firestore.batch(); // Reset the batch
-                    batchCount = 0;
-                }
-            }
+//                 const docRef = admin.firestore().collection("Humors").doc(uuid);
+//                 batch.set(docRef, docData);
+//                 batchCount++;
+//                 processedRowCount++;
 
-            // Commit the remaining batch
-            if (batchCount > 0) {
-                await batch.commit();
-                console.log(`Final batch of ${batchCount} committed.`);
-            }
+//                 // Commit batch if it reaches 500 writes
+//                 if (batchCount === 500) {
+//                     await batch.commit();
+//                     console.log("Batch of 500 committed.");
+//                     batch = admin.firestore().batch(); // Reset the batch
+//                     batchCount = 0;
+//                 }
+//             }
 
-            // Clean up: remove the file from the temporary directory
-            fs.unlinkSync(tempFilePath);
+//             // Commit the remaining batch
+//             if (batchCount > 0) {
+//                 await batch.commit();
+//                 console.log(`Final batch of ${batchCount} committed.`);
+//             }
 
-            // Send a success response
-            return res.status(200).json({ success: true, message: "Excel data uploaded to Firestore successfully." });
-        } catch (error) {
-            console.error("Error processing file:", error);
-            return res.status(500).json({ success: false, message: "Failed to process Excel file.", error: error.message });
-        }
-    });
-});
+//             // Clean up: remove the file from the temporary directory
+//             fs.unlinkSync(tempFilePath);
+
+//             // Send a success response
+//             return res.status(200).json({ success: true, message: "Excel data uploaded to Firestore successfully." });
+//         } catch (error) {
+//             console.error("Error processing file:", error);
+//             return res.status(500).json({ success: false, message: "Failed to process Excel file.", error: error.message });
+//         }
+//     });
+// });
