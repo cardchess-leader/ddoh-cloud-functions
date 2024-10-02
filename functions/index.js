@@ -7,9 +7,6 @@ const { getFirestore } = require("firebase-admin/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-// const xlsx = require("xlsx");
-// const os = require("os");
-// const fs = require("fs");
 const cors = require("cors");
 const _busboy = require("busboy");
 const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
@@ -345,7 +342,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
     const fields = {}; // Object to store form fields (like uuid, method, index)
     const updateBundleInfo = async (uuid, method, index, publicPath) => {
         try {
-            const bundleDoc = await admin.firestore().collection("Bundles").doc(uuid).get();
+            const bundleDoc = await getFirestore().collection("Bundles").doc(uuid).get();
             if (!bundleDoc.exists) {
                 throw new Error("Bundle not found");
             }
@@ -359,7 +356,7 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
                 coverImgList.push(publicPath);
             }
 
-            await admin.firestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
+            await getFirestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
         } catch (error) {
             console.error("Error updating bundle info:", error);
             throw error;
@@ -459,7 +456,7 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
             const storagePath = getStoragePathFromUrl(coverImgList[index]);
             await removeImage(storagePath);
             coverImgList.splice(index, 1);
-            await admin.firestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
+            await getFirestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
             // Send a success response
             res.status(200).json({ message: "Cover image removed successfully." });
         } catch (error) {
@@ -578,93 +575,32 @@ exports.getBundleListInSet = onRequest(async (req, res) => {
     });
 });
 
+// For flutter app use
+exports.downloadHumorBundle = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const uuid = req.query.uuid; // Bundle uuid
 
-// exports.humorBatchUpload = onRequest(async (req, res) => {
-//     corsHandler(req, res, async () => {
-//         try {
-//             const { passwordHash, fileName } = req.body;
+            const bundleSnapshot = await getFirestore()
+                .collection("Bundles")
+                .doc(uuid)
+                .get();
 
-//             console.log("HumorBatchUpload just started running...");
+            if (bundleSnapshot.empty) {
+                return res.status(404).json({ error: "Bundle not found" });
+            }
 
-//             // Check the password
-//             if (!await verifyAdminPassword(passwordHash)) {
-//                 return res.status(401).json({ success: false, message: "Unauthorized: Wrong password!" });
-//             }
+            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).limit(bundleSnapshot.data().humor_count).get();
 
-//             // Check if fileName is provided
-//             if (!fileName) {
-//                 return res.status(400).json({ success: false, message: "File name is required." });
-//             }
+            const humorList = humorSnapshot.docs.map(doc => 
+                doc.data()
+            );
 
-//             const tempFilePath = path.join(os.tmpdir(), fileName);
+            res.json({ humorList });
 
-//             // Download the file from Firebase Storage
-//             await bucket.file(`excel/${fileName}`).download({ destination: tempFilePath });
-//             console.log("File downloaded locally to:", tempFilePath);
-
-//             // Parse the Excel file
-//             const workbook = xlsx.readFile(tempFilePath);
-//             const sheetName = workbook.SheetNames[0]; // Assuming data is in the first sheet
-//             const worksheet = workbook.Sheets[sheetName];
-
-//             // Convert sheet to JSON, using the first row as field names
-//             const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
-//             const headers = rows.shift(); // Extract headers from the first row
-
-//             // Insert each row into Firestore, limit to 1000 rows
-//             let batch = admin.firestore().batch();
-//             let batchCount = 0;
-//             let processedRowCount = 0;
-
-//             for (const row of rows) {
-//                 if (processedRowCount >= 1000) {
-//                     console.log("Row limit of 1000 reached. Ignoring the rest.");
-//                     break;
-//                 }
-
-//                 const uuid = uuidv4();
-//                 const docData = {};
-
-//                 headers.forEach((header, index) => {
-//                     if (["author", "category", "context", "punchline", "release_date", "sender", "source"].includes(header)) {
-//                         docData[header] = row[index] !== undefined ? row[index] : "";
-//                     } else if (header === "index") {
-//                         docData[header] = row[index] !== undefined ? +row[index] : 0;
-//                     } else if (header === "active") {
-//                         docData[header] = row[index] !== undefined ? row[index] === "1" : false;
-//                     }
-//                 });
-//                 docData.context_list = [];
-//                 docData.uuid = uuid;
-
-//                 const docRef = admin.firestore().collection("Humors").doc(uuid);
-//                 batch.set(docRef, docData);
-//                 batchCount++;
-//                 processedRowCount++;
-
-//                 // Commit batch if it reaches 500 writes
-//                 if (batchCount === 500) {
-//                     await batch.commit();
-//                     console.log("Batch of 500 committed.");
-//                     batch = admin.firestore().batch(); // Reset the batch
-//                     batchCount = 0;
-//                 }
-//             }
-
-//             // Commit the remaining batch
-//             if (batchCount > 0) {
-//                 await batch.commit();
-//                 console.log(`Final batch of ${batchCount} committed.`);
-//             }
-
-//             // Clean up: remove the file from the temporary directory
-//             fs.unlinkSync(tempFilePath);
-
-//             // Send a success response
-//             return res.status(200).json({ success: true, message: "Excel data uploaded to Firestore successfully." });
-//         } catch (error) {
-//             console.error("Error processing file:", error);
-//             return res.status(500).json({ success: false, message: "Failed to process Excel file.", error: error.message });
-//         }
-//     });
-// });
+        } catch (error) {
+            logger.error("Error fetching humors in bundle...", error);
+            res.status(500).json({ error: "Could not fetch humors in bundle..." });
+        }
+    });
+});
