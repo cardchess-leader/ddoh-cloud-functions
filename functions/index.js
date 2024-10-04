@@ -590,9 +590,9 @@ exports.downloadHumorBundle = onRequest(async (req, res) => {
                 return res.status(404).json({ error: "Bundle not found" });
             }
 
-            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).limit(bundleSnapshot.data().humor_count).get();
+            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).orderBy("index").limit(bundleSnapshot.data().humor_count).get();
 
-            const humorList = humorSnapshot.docs.map(doc => 
+            const humorList = humorSnapshot.docs.map(doc =>
                 doc.data()
             );
 
