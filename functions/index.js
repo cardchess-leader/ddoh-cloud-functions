@@ -289,6 +289,8 @@ exports.getBundleSetList = onRequest(async (req, res) => {
         try {
             const snapshot = await getFirestore()
                 .collection("Bundles_Set")
+                .where("active", "==", true)
+                .orderBy("index")
                 .get();
 
             if (snapshot.empty) {
@@ -490,6 +492,8 @@ exports.addHumorBundle = onRequest(async (req, res) => {
                 language_code: payload.language_code,
                 set_list: payload.set_list,
                 product_id: payload.product_id,
+                preview_count: payload.preview_count,
+                preview_show_punchline_yn: payload.preview_show_punchline_yn,
                 uuid: payload.uuid,
             });
 
@@ -530,6 +534,8 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
                 language_code: payload.language_code,
                 set_list: payload.set_list,
                 product_id: payload.product_id,
+                preview_count: payload.preview_count,
+                preview_show_punchline_yn: payload.preview_show_punchline_yn,
             });
 
             // Send a success response
