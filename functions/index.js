@@ -598,8 +598,49 @@ exports.downloadHumorBundle = onRequest(async (req, res) => {
 
             const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).orderBy("index").limit(bundleSnapshot.data().humor_count).get();
 
-            const humorList = humorSnapshot.docs.map(doc =>
-                doc.data()
+            const humorList = humorSnapshot.docs.map((doc, index) =>
+                ({ ...doc.data(), index: index + 1 })
+            );
+
+            res.json({ humorList });
+
+        } catch (error) {
+            logger.error("Error fetching humors in bundle...", error);
+            res.status(500).json({ error: "Could not fetch humors in bundle..." });
+        }
+    });
+});
+
+// For flutter app use
+exports.previewHumorBundle = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const uuid = req.query.uuid; // Bundle uuid
+
+            const bundleSnapshot = await getFirestore()
+                .collection("Bundles")
+                .doc(uuid)
+                .get();
+
+            if (bundleSnapshot.empty) {
+                return res.status(404).json({ error: "Bundle not found" });
+            }
+
+            const bundleData = bundleSnapshot.data();
+
+            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).orderBy("index").limit(bundleData.preview_count).get();
+            let punchlinePlaceholder;
+            switch (bundleData.category) {
+                case "DAD_JOKES": case "KNOCK_KNOCK_JOKES":
+                case "DARK_HUMORS":
+                case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline :)"; break;
+                case "TRICKY_RIDDLES":
+                case "TRIVIA_QUIZ":
+                case "DETECTIVE_PUZZLES": "Purchase to view the answer :)"; break;
+                default: punchlinePlaceholder = ""; break;
+            }
+            const humorList = humorSnapshot.docs.map((doc, index) =>
+                ({ ...doc.data(), index: index + 1, punchline: bundleData.preview_show_punchline_yn ? doc.data().punchline : punchlinePlaceholder })
             );
 
             res.json({ humorList });
