@@ -636,7 +636,7 @@ exports.previewHumorBundle = onRequest(async (req, res) => {
                 case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline :)"; break;
                 case "TRICKY_RIDDLES":
                 case "TRIVIA_QUIZ":
-                case "DETECTIVE_PUZZLES": "Purchase to view the answer :)"; break;
+                case "MYSTERY_PUZZLES": "Purchase to view the answer :)"; break;
                 default: punchlinePlaceholder = ""; break;
             }
             const humorList = humorSnapshot.docs.map((doc, index) =>

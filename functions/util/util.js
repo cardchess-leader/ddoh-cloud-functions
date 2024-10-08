@@ -9,7 +9,7 @@ const HumorCategoryList = [
     "TRIVIA_QUIZ",
     "FUNNY_QUOTES",
     "STORY_JOKES",
-    "DETECTIVE_PUZZLES",
+    "MYSTERY_PUZZLES",
     "YOUR_HUMORS",
 ];
 
