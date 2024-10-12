@@ -490,7 +490,6 @@ exports.addHumorBundle = onRequest(async (req, res) => {
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
-                set_list: payload.set_list,
                 product_id: payload.product_id,
                 preview_count: payload.preview_count,
                 preview_show_punchline_yn: payload.preview_show_punchline_yn,
@@ -532,7 +531,6 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
-                set_list: payload.set_list,
                 product_id: payload.product_id,
                 preview_count: payload.preview_count,
                 preview_show_punchline_yn: payload.preview_show_punchline_yn,
@@ -547,32 +545,76 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
     });
 });
 
-// For flutter app use
+// for flutter app use
 exports.getBundleListInSet = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
             const setUuid = req.query.uuid; // string
 
-            const snapshot = await getFirestore()
+            const bundleSetSnapshot = await getFirestore()
+                .collection("Bundles_Set")
+                .doc(setUuid)
+                .get();
+
+            if (!bundleSetSnapshot.exists) {
+                return res.json({ bundleList: [] }); // Early return for non-existing document
+            }
+
+            const bundleUuidList = bundleSetSnapshot.data().bundle_list;
+
+            if (!bundleUuidList || bundleUuidList.length === 0) {
+                return res.json({ bundleList: [] }); // Early return if bundle list is empty
+            }
+
+            const bundleSnapshot = await getFirestore()
                 .collection("Bundles")
-                .where("set_list", "array-contains", setUuid)
+                .where("uuid", "in", bundleUuidList)
                 .where("active", "==", true)
                 .get();
 
-            if (snapshot.empty) {
-                return res.json({ bundleList: [] }); // Early return for empty collection
+            if (bundleSnapshot.empty) {
+                return res.json({ bundleList: [] }); // Early return for empty query result
             }
 
-            const bundleList = snapshot.docs.map(doc => {
+            const fetchedBundles = bundleSnapshot.docs.map(doc => {
                 const bundle = doc.data();
                 return {
                     ...bundle,
-                    // later add price string info or any additional info hereafter!
+                    // Example price, adjust as needed
                     price: "$2.99",
                 };
             });
 
-            res.json({ bundleList });
+            // Now sort the fetchedBundles based on the order of bundleUuidList
+            const sortedBundleList = bundleUuidList.map(uuid =>
+                fetchedBundles.find(bundle => bundle.uuid === uuid)
+            ).filter(Boolean); // Filter out any null values (if any)
+
+            res.json({ bundleList: sortedBundleList });
+
+        } catch (error) {
+            logger.error("Error fetching bundle list:", error);
+            res.status(500).json({ error: "Could not fetch bundle list..." });
+        }
+    });
+});
+
+// for flutter app use
+exports.getBundleDetail = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const uuid = req.query.uuid; // string
+
+            const bundleSnapshot = await getFirestore()
+                .collection("Bundles")
+                .doc(uuid)
+                .get();
+
+            if (!bundleSnapshot.exists) {
+                return res.status(404).json({ error: "Bundle does not exist." });
+            }
+
+            res.json({ bundle: { ...bundleSnapshot.data(), price: "$2.99" } });
 
         } catch (error) {
             logger.error("Error fetching bundle list:", error);
@@ -633,10 +675,10 @@ exports.previewHumorBundle = onRequest(async (req, res) => {
             switch (bundleData.category) {
                 case "DAD_JOKES": case "KNOCK_KNOCK_JOKES":
                 case "DARK_HUMORS":
-                case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline :)"; break;
+                case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline! :)"; break;
                 case "TRICKY_RIDDLES":
                 case "TRIVIA_QUIZ":
-                case "MYSTERY_PUZZLES": "Purchase to view the answer :)"; break;
+                case "MYSTERY_PUZZLES": "Purchase to view the answer! :)"; break;
                 default: punchlinePlaceholder = ""; break;
             }
             const humorList = humorSnapshot.docs.map((doc, index) =>
