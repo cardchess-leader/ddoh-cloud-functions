@@ -33,30 +33,6 @@ const corsHandler = cors({
     credentials: true, // Allow credentials if needed
 });
 
-/** Helper functions */
-function getStoragePathFromUrl(publicUrl) { // Only for bundle > covers images path
-    // Regular expression to match the pattern "bundles/covers/{filename}"
-    const regex = /bundles\/covers\/([^?]+)/;
-    const match = publicUrl.match(regex);
-
-    if (match && match[0]) {
-        return decodeURIComponent(match[0]);
-    }
-
-    return null; // Return null if no matching pattern is found
-}
-
-const removeImage = async (storagePath) => {
-    try {
-        const file = bucket.file(storagePath);
-        await file.delete();
-        console.log("Bundle cover image deleted successfully.");
-    } catch (error) {
-        console.error("Error deleting bundle cover image:", error);
-    }
-}
-/** End of helper functions */
-
 // For admin app use
 exports.addDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
@@ -351,8 +327,6 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
             const coverImgList = bundleDoc.data().cover_img_list || [];
 
             if (method === "replace") {
-                const storagePath = getStoragePathFromUrl(coverImgList[index]);
-                await removeImage(storagePath);
                 coverImgList[index] = publicPath;
             } else if (method === "add") {
                 coverImgList.push(publicPath);
@@ -455,8 +429,6 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
                 throw new Error("Bundle not found");
             }
             const coverImgList = bundleDoc.data().cover_img_list;
-            const storagePath = getStoragePathFromUrl(coverImgList[index]);
-            await removeImage(storagePath);
             coverImgList.splice(index, 1);
             await getFirestore().collection("Bundles").doc(uuid).update({ cover_img_list: coverImgList });
             // Send a success response
@@ -678,7 +650,7 @@ exports.previewHumorBundle = onRequest(async (req, res) => {
                 case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline! :)"; break;
                 case "TRICKY_RIDDLES":
                 case "TRIVIA_QUIZ":
-                case "MYSTERY_PUZZLES": "Purchase to view the answer! :)"; break;
+                case "MYSTERY_PUZZLES": punchlinePlaceholder = "Purchase to view the answer! :)"; break;
                 default: punchlinePlaceholder = ""; break;
             }
             const humorList = humorSnapshot.docs.map((doc, index) =>
