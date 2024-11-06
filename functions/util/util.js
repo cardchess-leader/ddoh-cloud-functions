@@ -2,7 +2,7 @@ const IS_PRODUCTION = true;
 
 const HumorCategoryList = [
     "DAD_JOKES",
-    "KNOCK_KNOCK_JOKES",
+    "DIALOG_JOKES",
     "ONE_LINERS",
     "DARK_HUMORS",
     "TRICKY_RIDDLES",
@@ -10,6 +10,7 @@ const HumorCategoryList = [
     "FUNNY_QUOTES",
     "STORY_JOKES",
     "MYSTERY_PUZZLES",
+    "KNOCK_KNOCK_JOKES",
     "YOUR_HUMORS",
 ];
 
