@@ -12,6 +12,8 @@ const HumorCategoryList = [
     "MYSTERY_PUZZLES",
     "KNOCK_KNOCK_JOKES",
     "YOUR_HUMORS",
+    "MISC_PUNCHLINE",
+    "MISC_NO_PUNCHLINE",
 ];
 
 const CorsOriginList = [ // Comment out localhost:3000 in production mode
