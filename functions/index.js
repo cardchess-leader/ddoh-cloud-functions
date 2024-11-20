@@ -212,7 +212,7 @@ exports.resetAppState = onRequest(async (req, res) => {
 // Scheduled function for notification
 exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
     const db = getFirestore();
-    const snapshot = await db.collection("Humors").where("category", "==", "DAD_JOKES").where("release_date", "==", getDateInUTC(new Date())).where("index", "==", 0).limit(1).get();
+    const snapshot = await db.collection("Humors").where("category", "==", "DAD_JOKES").where("release_date", "==", getDateInUTC(new Date())).orderBy("index").limit(1).get();
     if (snapshot.empty) {
         return null;
     } else {
@@ -662,6 +662,110 @@ exports.previewHumorBundle = onRequest(async (req, res) => {
         } catch (error) {
             logger.error("Error fetching humors in bundle...", error);
             res.status(500).json({ error: "Could not fetch humors in bundle..." });
+        }
+    });
+});
+
+// For flutter app use
+exports.getAvailableSkuList = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const db = getFirestore();
+
+            // Fetch active bundle sets
+            const bundleSetSnapshot = await db
+                .collection("Bundles_Set")
+                .where("active", "==", true)
+                .get();
+
+            if (bundleSetSnapshot.empty) {
+                res.json({ availableSkuList: [] });
+                return;
+            }
+
+            // Extract unique bundle UUIDs from active bundle sets
+            const bundleUuidList = new Set();
+            bundleSetSnapshot.forEach(doc => {
+                const bundleSet = doc.data();
+                if (Array.isArray(bundleSet.bundle_list)) {
+                    bundleSet.bundle_list.forEach(uuid => bundleUuidList.add(uuid));
+                }
+            });
+
+            if (bundleUuidList.size === 0) {
+                res.json({ availableSkuList: [] });
+                return;
+            }
+
+            // Fetch bundles using the UUIDs
+            const bundleSnapshot = await db
+                .collection("Bundles")
+                .where("uuid", "in", Array.from(bundleUuidList))
+                .get();
+
+            if (bundleSnapshot.empty) {
+                res.json({ availableSkuList: [] });
+                return;
+            }
+
+            // Extract product IDs from the fetched bundles
+            const availableSkuList = bundleSnapshot.docs
+                .map(doc => {
+                    const data = doc.data();
+                    return data ? data.product_id : null;
+                })
+                .filter(productId => productId); // Ensure non-null product IDs
+
+            res.json({ availableSkuList });
+        } catch (error) {
+            logger.error("Error fetching available SKU list: ", error);
+            res.status(500).json({ error: "Could not fetch available SKU list." });
+        }
+    });
+});
+
+// For admin app use
+exports.getBundleTotalLikes = onRequest(async (req, res) => {
+    corsHandler(req, res, async () => {
+        try {
+            const uuid = req.query.uuid; // string
+
+            if (!uuid) {
+                return res.status(400).json({ error: "UUID parameter is missing" });
+            }
+
+            // Fetch all humors associated with the given bundle UUID
+            const humorSnapshot = await getFirestore()
+                .collection("Humors")
+                .where("source", "==", uuid)
+                .get();
+
+            if (humorSnapshot.empty) {
+                return res.status(404).json({ error: "No humors found for the given bundle UUID" });
+            }
+
+            // Collect all humor UUIDs
+            const humorUUIDs = humorSnapshot.docs.map(doc => doc.data().uuid);
+
+            // Fetch all likes from Realtime Database in one batch
+            const db = getDatabase();
+            const likesRef = db.ref("likes");
+
+            const likesSnapshot = await likesRef.once("value");
+            const allLikes = likesSnapshot.val();
+
+            // Sum the likes for all humor UUIDs
+            let totalLikes = 0;
+            humorUUIDs.forEach(humorUUID => {
+                if (allLikes && allLikes[humorUUID]) {
+                    totalLikes += allLikes[humorUUID];
+                }
+            });
+
+            res.json({ totalLikes });
+        } catch (error) {
+            logger.error("Error fetching bundle total likes:", error);
+            res.status(500).json({ error: "Could not fetch bundle total likes" });
         }
     });
 });
