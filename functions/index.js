@@ -37,59 +37,85 @@ const corsHandler = cors({
 exports.addDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const { passwordHash, ...payload } = req.body;
-            if (!await verifyAdminPassword(passwordHash)) {
-                return res.status(401).json("Wrong password!");
+            // Validate request method
+            if (req.method !== "POST") {
+                return res.status(405).json({ error: "Method not allowed. Use POST." });
             }
+
+            const { passwordHash, ...payload } = req.body;
+
+            // Validate admin password
+            if (!passwordHash || !(await verifyAdminPassword(passwordHash))) {
+                return res.status(401).json({ error: "Unauthorized: Invalid password." });
+            }
+
+            // Validate request body
             const validatePayload = validateRequestBody(payload);
             if (validatePayload.statusCode === 400) {
-                return res.status(400).json(validatePayload);
+                return res.status(400).json({ error: validatePayload.error });
             }
 
             const db = getFirestore();
+
+            // Reference the document to update or create
             const docRef = db.collection("Humors").doc(payload.uuid);
 
-            // Add or set the document in the subcollection
+            // Save humor data to Firestore
             await docRef.set(payload);
 
-            // Send a success response
-            res.status(200).json({ message: "Humor added successfully." });
+            // Respond with success
+            return res.status(200).json({ message: "Humor added successfully." });
         } catch (error) {
             console.error("Error adding humor:", error);
-            res.status(500).json({ error: "Could not add the humor." });
+
+            // Send a consistent error response
+            return res.status(500).json({ error: "Internal server error. Could not add the humor." });
         }
     });
 });
 
-// For admin app use
 exports.updateDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const { passwordHash, ...payload } = req.body;
-            if (!await verifyAdminPassword(passwordHash)) {
-                return res.status(401).json("Wrong password!");
+            // Validate HTTP method
+            if (req.method !== "POST") {
+                return res.status(405).json({ error: "Method not allowed. Use POST." });
             }
+
+            const { passwordHash, ...payload } = req.body;
+
+            // Validate admin password
+            if (!passwordHash || !(await verifyAdminPassword(passwordHash))) {
+                return res.status(401).json({ error: "Unauthorized: Invalid password." });
+            }
+
+            // Validate request body
             const validatePayload = validateRequestBody(payload);
             if (validatePayload.statusCode === 400) {
-                return res.status(400).json(validatePayload);
+                return res.status(400).json({ error: validatePayload.error });
             }
+
             const db = getFirestore();
+
+            // Reference the document to update
             const docRef = db.collection("Humors").doc(payload.uuid);
 
-            // Check if document exists
+            // Check if the document exists
             const docSnapshot = await docRef.get();
             if (!docSnapshot.exists) {
-                return res.status(404).json({ error: "Humor does not exist." });
+                return res.status(404).json({ error: "Humor not found." });
             }
 
-            // Update specific fields in the document
+            // Update the document with new data
             await docRef.update(payload);
 
-            // Send a success response
-            res.status(200).json({ message: "Humor updated successfully." });
+            // Respond with success
+            return res.status(200).json({ message: "Humor updated successfully." });
         } catch (error) {
             console.error("Error updating humor:", error);
-            res.status(500).json({ error: "Could not update the humor." });
+
+            // Send a consistent error response
+            return res.status(500).json({ error: "Internal server error. Could not update the humor." });
         }
     });
 });
@@ -98,35 +124,53 @@ exports.updateDailyHumors = onRequest(async (req, res) => {
 exports.getDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const requestedCate = req.query.category; // string
-            // Category validation
-            if (!requestedCate || !HumorCategoryList.includes(requestedCate)) {
-                logger.info("Invalid humor category.");
-                return res.status(400).json({ error: "Invalid humor category" });
+            // Validate the request method
+            if (req.method !== "GET") {
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
 
-            let docsSnapshotRef = getFirestore().collection("Humors").where("source", "==", "Daily Dose of Humors").where("active", "==", true).where("category", "==", req.query.category);
+            // Extract and validate the requested category
+            const requestedCate = req.query.category;
+            if (!requestedCate || !HumorCategoryList.includes(requestedCate)) {
+                logger.info("Invalid humor category:", { category: requestedCate });
+                return res.status(400).json({ error: "Invalid humor category." });
+            }
 
-            // Get today"s date in UTC format (yyyy-mm-dd)
+            const db = getFirestore();
+            let humorQuery = db
+                .collection("Humors")
+                .where("source", "==", "Daily Dose of Humors")
+                .where("active", "==", true)
+                .where("category", "==", requestedCate);
+
+            // Define date range: last 7 days
             const todayDate = getDateInUTC(new Date());
             const sevenDaysAgoDate = getDateInUTC(addDaysToDate(new Date(), -7));
-            docsSnapshotRef = docsSnapshotRef
-                .where("release_date", ">", sevenDaysAgoDate)  // Start date filter
-                .where("release_date", "<=", todayDate)    // End date filter
 
-            const docsSnapshot = await docsSnapshotRef
+            // Apply date filters to the query
+            humorQuery = humorQuery
+                .where("release_date", ">", sevenDaysAgoDate)
+                .where("release_date", "<=", todayDate)
                 .orderBy("release_date", "desc")
-                .orderBy("index", "asc")
-                .get();
+                .orderBy("index", "asc");
 
-            const dailyHumorList = docsSnapshot.docs.map(doc => ({
-                ...doc.data(),
-                is_new: doc.data().release_date === getDateInUTC(new Date()),
-            }))
-            res.json({ humorList: dailyHumorList });
+            // Fetch documents
+            const docsSnapshot = await humorQuery.get();
+
+            // Transform the snapshot into a humor list
+            const dailyHumorList = docsSnapshot.docs.map((doc) => {
+                const humorData = doc.data();
+                return {
+                    ...humorData,
+                    is_new: humorData.release_date === todayDate,
+                };
+            });
+
+            // Send the humor list as a response
+            return res.status(200).json({ humorList: dailyHumorList });
         } catch (error) {
             logger.error("Error fetching daily humors:", error);
-            res.status(500).json({ error: "Could not fetch daily humors..." });
+            return res.status(500).json({ error: "Internal server error. Could not fetch daily humors." });
         }
     });
 });
@@ -135,58 +179,93 @@ exports.getDailyHumors = onRequest(async (req, res) => {
 exports.getHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            let docsSnapshotRef = getFirestore().collection("Humors");
-            if (req.query.category) {
-                if (req.query.category) {
-                    docsSnapshotRef = docsSnapshotRef.where("category", "==", req.query.category);
-                }
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
-            if (req.query.date) {
-                docsSnapshotRef = docsSnapshotRef.where("release_date", "==", req.query.date);
-            }
-            if (req.query.active) {
-                docsSnapshotRef = docsSnapshotRef.where("active", "==", req.query.active === "true");
-            }
-            const docsSnapshot = await docsSnapshotRef
-                .orderBy("release_date", "desc")
-                .orderBy("index", "asc")
-                .get();
 
-            const dailyHumorList = docsSnapshot.docs.map(doc => ({
-                ...doc.data(),
-                is_new: doc.data().release_date === getDateInUTC(new Date()),
-            }))
-            res.json({ humorList: dailyHumorList });
+            const db = getFirestore();
+            let humorQuery = db.collection("Humors");
+
+            // Apply category filter if provided
+            if (req.query.category) {
+                humorQuery = humorQuery.where("category", "==", req.query.category);
+            }
+
+            // Apply date filter if provided
+            if (req.query.date) {
+                humorQuery = humorQuery.where("release_date", "==", req.query.date);
+            }
+
+            // Apply active filter if provided
+            if (req.query.active) {
+                const isActive = req.query.active.toLowerCase() === "true";
+                humorQuery = humorQuery.where("active", "==", isActive);
+            }
+
+            // Add ordering
+            humorQuery = humorQuery
+                .orderBy("release_date", "desc")
+                .orderBy("index", "asc");
+
+            // Fetch documents
+            const docsSnapshot = await humorQuery.get();
+
+            // Transform documents into humor list
+            const humorList = docsSnapshot.docs.map((doc) => {
+                const humorData = doc.data();
+                return {
+                    ...humorData,
+                    is_new: humorData.release_date === getDateInUTC(new Date()),
+                };
+            });
+
+            // Send the humor list as a response
+            return res.status(200).json({ humorList });
         } catch (error) {
-            logger.error("Error fetching daily humors:", error);
-            res.status(500).json({ error: "Could not fetch daily humors..." });
+            logger.error("Error fetching humors:", error);
+
+            // Send a consistent error response
+            return res.status(500).json({ error: "Internal server error. Could not fetch humors." });
         }
     });
 });
-
-
 
 // For flutter app use
 exports.userSubmitDailyHumors = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const payload = req.body;
-            const validatePayload = validateUserSubmitBody(payload);
-            if (validatePayload.statusCode === 400) {
-                return res.status(400).json(validatePayload);
+            // Validate the request method
+            if (req.method !== "POST") {
+                return res.status(405).json({ error: "Method not allowed. Use POST." });
             }
 
+            // Validate the payload
+            const payload = req.body;
+            const validationResult = validateUserSubmitBody(payload);
+            if (validationResult.statusCode === 400) {
+                return res.status(400).json({ error: validationResult.error });
+            }
+
+            // Initialize Firestore
             const db = getFirestore();
+
+            // Reference to the document in the "User_Submit" collection
             const dateDocRef = db.collection("User_Submit").doc(payload.humor_uuid);
 
-            // Set the "date" field on the document, creating it if it doesn"t exist
-            await dateDocRef.set({ ...payload, date: getDateInUTC(new Date()) });
+            // Add or overwrite the document with the payload and current date
+            await dateDocRef.set({
+                ...payload,
+                date: getDateInUTC(new Date()),
+            });
 
-            // Send a success response
-            res.status(200).json({ message: "Humor submission successful." });
+            // Respond with success
+            return res.status(200).json({ message: "Humor submission successful." });
         } catch (error) {
-            console.error("Error adding user submitted humor:", error);
-            res.status(500).json({ error: "Unexpected error. Please try again later." });
+            logger.error("Error adding user-submitted humor:", error);
+
+            // Send a consistent error response
+            return res.status(500).json({ error: "Internal server error. Please try again later." });
         }
     });
 });
@@ -195,66 +274,109 @@ exports.userSubmitDailyHumors = onRequest(async (req, res) => {
 exports.resetAppState = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const lastResetDate = req.query.lastResetDate; // string
-            const todayString = getDateInUTC(new Date());
-            if (lastResetDate == todayString) {
-                return res.status(400).json({ message: "Already reset for today" });
-            } else {
-                return res.status(200).json({ last_reset_date: todayString });
+            // Validate the request method
+            if (req.method !== "GET") {
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
+
+            const lastResetDate = req.query.lastResetDate; // string
+            if (!lastResetDate) {
+                logger.info("Missing 'lastResetDate' query parameter.");
+                return res.status(400).json({ error: "Missing 'lastResetDate' query parameter." });
+            }
+
+            const todayString = getDateInUTC(new Date());
+
+            // Check if the app state has already been reset today
+            if (lastResetDate === todayString) {
+                logger.info("App state already reset for today.");
+                return res.status(400).json({ message: "Already reset for today." });
+            }
+
+            // Respond with the new reset date
+            logger.info("App state successfully reset.");
+            return res.status(200).json({ last_reset_date: todayString });
         } catch (error) {
-            console.error("Unexpected error while reseting app state.", error);
-            res.status(500).json({ error: "Unexpected error while reseting app state." });
+            logger.error("Unexpected error while resetting app state:", error);
+
+            // Respond with a consistent error message
+            return res.status(500).json({ error: "Internal server error while resetting app state." });
         }
     });
 });
 
 // Scheduled function for notification
 exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
-    const db = getFirestore();
-    const snapshot = await db.collection("Humors").where("category", "==", "DAD_JOKES").where("release_date", "==", getDateInUTC(new Date())).orderBy("index").limit(1).get();
-    if (snapshot.empty) {
-        return null;
-    } else {
+    try {
+        const db = getFirestore();
+        const todayDate = getDateInUTC(new Date());
+
+        // Fetch today's humor from the "Humors" collection
+        const snapshot = await db
+            .collection("Humors")
+            .where("category", "==", "DAD_JOKES")
+            .where("release_date", "==", todayDate)
+            .orderBy("index")
+            .limit(1)
+            .get();
+
+        // Check if the snapshot is empty
+        if (snapshot.empty) {
+            logger.info("No humor found for today's notification.");
+            return null;
+        }
+
+        // Prepare the notification payload
+        const humorData = snapshot.docs[0].data();
         const message = {
             notification: {
                 title: "New humors have just arrived!",
-                body: snapshot.docs[0].data().context,
+                body: humorData.context || "Check out today's humor now!",
             },
-            topic: "daily_humor",  // The topic name to send the notification to
+            topic: "daily_humor",
         };
-        try {
-            // Send the notification to the topic
-            const response = await admin.messaging().send(message);
-            console.log("Successfully sent humor notification:", response);
-        } catch (error) {
-            console.log("Error sending humor notification:", error);
-        }
+
+        // Send the notification
+        const response = await admin.messaging().send(message);
+        logger.info("Successfully sent humor notification:", { response });
+
+        return null;
+    } catch (error) {
+        logger.error("Error sending humor notification:", error);
+        return null;
     }
-    return null;
 });
 
 // For admin app use
 exports.getBundleList = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const snapshot = await getFirestore()
-                .collection("Bundles")
-                .get();
-
-            if (snapshot.empty) {
-                return res.json({ bundleList: [] }); // Early return for empty collection
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
 
-            const bundleList = snapshot.docs.map(doc => {
-                return doc.data();
-            });
+            const db = getFirestore();
 
-            res.json({ bundleList });
+            // Fetch all bundles
+            const snapshot = await db.collection("Bundles").get();
 
+            // Check if the collection is empty
+            if (snapshot.empty) {
+                logger.info("No bundles found in the collection.");
+                return res.status(200).json({ bundleList: [] });
+            }
+
+            // Map documents to data
+            const bundleList = snapshot.docs.map((doc) => doc.data());
+
+            // Respond with the bundle list
+            return res.status(200).json({ bundleList });
         } catch (error) {
             logger.error("Error fetching bundle list:", error);
-            res.status(500).json({ error: "Could not fetch bundle list..." });
+
+            // Return consistent error response
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle list." });
         }
     });
 });
@@ -263,25 +385,49 @@ exports.getBundleList = onRequest(async (req, res) => {
 exports.getBundleSetList = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const snapshot = await getFirestore()
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
+            }
+
+            const isAdmin = req.query.isAdmin;
+
+            const db = getFirestore();
+
+            // Query to fetch active bundle sets ordered by index
+            let snapshot = await db
                 .collection("Bundles_Set")
                 .where("active", "==", true)
                 .orderBy("index")
                 .get();
 
-            if (snapshot.empty) {
-                return res.json({ bundleSetList: [] }); // Early return for empty collection
+            if (isAdmin) {
+                snapshot = await db
+                .collection("Bundles_Set")
+                .orderBy("index")
+                .get();
             }
 
-            const bundleSetList = snapshot.docs.map(doc => {
-                return doc.data();
-            });
+            // Return early if the collection is empty
+            if (snapshot.empty) {
+                logger.info("No active bundle sets found in the database.");
+                return res.status(200).json({ bundleSetList: [] });
+            }
 
-            res.json({ bundleSetList });
+            // Map documents to data
+            const bundleSetList = snapshot.docs.map((doc) => ({
+                id: doc.id, // Include document ID if needed
+                ...doc.data(),
+            }));
 
+            // Respond with the fetched bundle set list
+            logger.info("Fetched bundle set list successfully.", { count: bundleSetList.length });
+            return res.status(200).json({ bundleSetList });
         } catch (error) {
-            logger.error("Error fetching bundle set list:", error);
-            res.status(500).json({ error: "Could not fetch bundle set list..." });
+            // Log error and respond with a consistent error message
+            logger.error("Error fetching bundle set list:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle set list." });
         }
     });
 });
@@ -290,27 +436,40 @@ exports.getBundleSetList = onRequest(async (req, res) => {
 exports.getBundleDetail = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const uuid = req.query.uuid; // string
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
+            }
 
+            // Extract and validate the `uuid` parameter
+            const uuid = req.query.uuid;
             if (!uuid) {
-                return res.status(400).json({ error: "UUID parameter is missing" });
+                logger.info("Missing UUID parameter in request.");
+                return res.status(400).json({ error: "UUID parameter is missing." });
             }
 
-            const bundleSnapshot = await getFirestore()
-                .collection("Bundles")
-                .doc(uuid)
-                .get();
+            const db = getFirestore();
 
+            // Fetch the bundle document by UUID
+            const bundleSnapshot = await db.collection("Bundles").doc(uuid).get();
+
+            // Handle case where the bundle does not exist
             if (!bundleSnapshot.exists) {
-                return res.status(404).json({ error: "Bundle not found" });
+                logger.info("Bundle not found for UUID:", { uuid });
+                return res.status(404).json({ error: "Bundle not found." });
             }
 
-            const bundleDetail = bundleSnapshot.data();
-            res.json({ bundleDetail });
+            // Retrieve the bundle data
+            const bundleDetail = bundleSnapshot.data()
 
+            // Respond with the bundle details
+            logger.info("Bundle detail fetched successfully.", { uuid });
+            return res.status(200).json({ bundleDetail });
         } catch (error) {
-            logger.error("Error fetching bundle detail:", error);
-            res.status(500).json({ error: "Could not fetch bundle detail" });
+            // Log error details
+            logger.error("Error fetching bundle detail:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle detail." });
         }
     });
 });
@@ -444,21 +603,54 @@ exports.removeBundleCoverImages = onRequest(async (req, res) => {
 exports.addHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
+            // Validate HTTP method
+            if (req.method !== "POST") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use POST." });
+            }
+
             const { passwordHash, ...payload } = req.body;
-            if (!await verifyAdminPassword(passwordHash)) {
-                return res.status(401).json("Wrong password!");
+
+            // Validate admin password
+            if (!passwordHash || !(await verifyAdminPassword(passwordHash))) {
+                logger.info("Invalid admin password provided.");
+                return res.status(401).json({ error: "Unauthorized: Invalid password." });
+            }
+
+            // Validate required fields in the payload
+            const requiredFields = [
+                "active",
+                "title",
+                "description",
+                "category",
+                "release_date",
+                "humor_count",
+                "language_code",
+                "product_id",
+                "preview_count",
+                "preview_show_punchline_yn",
+                "uuid",
+            ];
+
+            const missingFields = requiredFields.filter((field) => !(field in payload));
+            if (missingFields.length > 0) {
+                logger.info("Missing required fields in the payload:", { missingFields });
+                return res.status(400).json({
+                    error: "Invalid request: Missing required fields.",
+                    missingFields,
+                });
             }
 
             const db = getFirestore();
             const docRef = db.collection("Bundles").doc(payload.uuid);
 
-            // Add or set the document in the subcollection
+            // Save bundle data to Firestore
             await docRef.set({
                 active: payload.active,
                 title: payload.title,
                 description: payload.description,
                 category: payload.category,
-                cover_img_list: [],
+                cover_img_list: [], // Empty list for initial cover images
                 release_date: payload.release_date,
                 humor_count: payload.humor_count,
                 language_code: payload.language_code,
@@ -468,11 +660,12 @@ exports.addHumorBundle = onRequest(async (req, res) => {
                 uuid: payload.uuid,
             });
 
-            // Send a success response
-            res.status(200).json({ message: "Bundle added successfully." });
+            // Respond with success
+            logger.info("Bundle added successfully:", { uuid: payload.uuid });
+            return res.status(200).json({ message: "Bundle added successfully." });
         } catch (error) {
-            console.error("Error adding bundle:", error);
-            res.status(500).json({ error: "Could not add the bundle." });
+            logger.error("Error adding bundle:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not add the bundle." });
         }
     });
 });
@@ -481,17 +674,52 @@ exports.addHumorBundle = onRequest(async (req, res) => {
 exports.updateHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const { passwordHash, ...payload } = req.body;
-            if (!await verifyAdminPassword(passwordHash)) {
-                return res.status(401).json("Wrong password!");
+            // Validate HTTP method
+            if (req.method !== "POST") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use POST." });
             }
+
+            const { passwordHash, ...payload } = req.body;
+
+            // Validate admin password
+            if (!passwordHash || !(await verifyAdminPassword(passwordHash))) {
+                logger.info("Invalid admin password provided.");
+                return res.status(401).json({ error: "Unauthorized: Invalid password." });
+            }
+
+            // Validate required fields
+            const requiredFields = [
+                "uuid",
+                "active",
+                "title",
+                "description",
+                "category",
+                "release_date",
+                "humor_count",
+                "language_code",
+                "product_id",
+                "preview_count",
+                "preview_show_punchline_yn",
+            ];
+
+            const missingFields = requiredFields.filter((field) => !(field in payload));
+            if (missingFields.length > 0) {
+                logger.info("Missing required fields in the payload:", { missingFields });
+                return res.status(400).json({
+                    error: "Invalid request: Missing required fields.",
+                    missingFields,
+                });
+            }
+
             const db = getFirestore();
             const docRef = db.collection("Bundles").doc(payload.uuid);
 
             // Check if document exists
             const docSnapshot = await docRef.get();
             if (!docSnapshot.exists) {
-                return res.status(404).json({ error: "Document does not exist." });
+                logger.info("Bundle document does not exist:", { uuid: payload.uuid });
+                return res.status(404).json({ error: "Bundle document does not exist." });
             }
 
             // Update specific fields in the document
@@ -508,11 +736,12 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
                 preview_show_punchline_yn: payload.preview_show_punchline_yn,
             });
 
-            // Send a success response
-            res.status(200).json({ message: "Bundle updated successfully." });
+            // Respond with success
+            logger.info("Bundle updated successfully:", { uuid: payload.uuid });
+            return res.status(200).json({ message: "Bundle updated successfully." });
         } catch (error) {
-            console.error("Error updating bundle:", error);
-            res.status(500).json({ error: "Could not bundle the document." });
+            logger.error("Error updating bundle:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not update the bundle." });
         }
     });
 });
@@ -521,52 +750,62 @@ exports.updateHumorBundle = onRequest(async (req, res) => {
 exports.getBundleListInSet = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const setUuid = req.query.uuid; // string
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
+            }
 
-            const bundleSetSnapshot = await getFirestore()
-                .collection("Bundles_Set")
-                .doc(setUuid)
-                .get();
+            // Validate UUID query parameter
+            const setUuid = req.query.uuid;
+            if (!setUuid) {
+                logger.info("Missing required UUID parameter.");
+                return res.status(400).json({ error: "Missing required UUID parameter." });
+            }
 
+            const db = getFirestore();
+
+            // Fetch the bundle set document
+            const bundleSetSnapshot = await db.collection("Bundles_Set").doc(setUuid).get();
             if (!bundleSetSnapshot.exists) {
-                return res.json({ bundleList: [] }); // Early return for non-existing document
+                logger.info("Bundle set not found:", { setUuid });
+                return res.status(404).json({ bundleList: [] });
             }
 
-            const bundleUuidList = bundleSetSnapshot.data().bundle_list;
-
-            if (!bundleUuidList || bundleUuidList.length === 0) {
-                return res.json({ bundleList: [] }); // Early return if bundle list is empty
+            const bundleUuidList = bundleSetSnapshot.data().bundle_list || [];
+            if (bundleUuidList.length === 0) {
+                logger.info("No bundles found in the set:", { setUuid });
+                return res.status(200).json({ bundleList: [] });
             }
 
-            const bundleSnapshot = await getFirestore()
+            // Fetch active bundles by UUID
+            const bundleSnapshot = await db
                 .collection("Bundles")
                 .where("uuid", "in", bundleUuidList)
                 .where("active", "==", true)
                 .get();
 
             if (bundleSnapshot.empty) {
-                return res.json({ bundleList: [] }); // Early return for empty query result
+                logger.info("No active bundles found for the set:", { setUuid });
+                return res.status(200).json({ bundleList: [] });
             }
 
-            const fetchedBundles = bundleSnapshot.docs.map(doc => {
-                const bundle = doc.data();
-                return {
-                    ...bundle,
-                    // Example price, adjust as needed
-                    price: "$2.99",
-                };
-            });
+            // Map and sort the fetched bundles
+            const fetchedBundles = bundleSnapshot.docs.map((doc) => ({
+                ...doc.data(),
+                price: "$2.99", // Example price, adjust as needed
+            }));
 
-            // Now sort the fetchedBundles based on the order of bundleUuidList
-            const sortedBundleList = bundleUuidList.map(uuid =>
-                fetchedBundles.find(bundle => bundle.uuid === uuid)
-            ).filter(Boolean); // Filter out any null values (if any)
+            // Sort bundles based on the original UUID list order
+            const sortedBundleList = bundleUuidList
+                .map((uuid) => fetchedBundles.find((bundle) => bundle.uuid === uuid))
+                .filter(Boolean); // Filter out any null values
 
-            res.json({ bundleList: sortedBundleList });
-
+            logger.info("Fetched and sorted bundles successfully:", { setUuid, count: sortedBundleList.length });
+            return res.status(200).json({ bundleList: sortedBundleList });
         } catch (error) {
-            logger.error("Error fetching bundle list:", error);
-            res.status(500).json({ error: "Could not fetch bundle list..." });
+            logger.error("Error fetching bundle list in set:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle list." });
         }
     });
 });
@@ -575,22 +814,38 @@ exports.getBundleListInSet = onRequest(async (req, res) => {
 exports.getBundleDetail = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const uuid = req.query.uuid; // string
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
+            }
 
-            const bundleSnapshot = await getFirestore()
-                .collection("Bundles")
-                .doc(uuid)
-                .get();
+            // Validate UUID parameter
+            const uuid = req.query.uuid;
+            if (!uuid) {
+                logger.info("Missing UUID parameter in request.");
+                return res.status(400).json({ error: "Missing UUID parameter." });
+            }
 
+            const db = getFirestore();
+
+            // Fetch the bundle document
+            const bundleSnapshot = await db.collection("Bundles").doc(uuid).get();
+
+            // Check if the document exists
             if (!bundleSnapshot.exists) {
+                logger.info("Bundle does not exist:", { uuid });
                 return res.status(404).json({ error: "Bundle does not exist." });
             }
 
-            res.json({ bundle: { ...bundleSnapshot.data(), price: "$2.99" } });
+            // Prepare bundle data with additional pricing information
+            const bundleData = bundleSnapshot.data();
 
+            logger.info("Bundle fetched successfully:", { uuid });
+            return res.status(200).json({ bundle: bundleData });
         } catch (error) {
-            logger.error("Error fetching bundle list:", error);
-            res.status(500).json({ error: "Could not fetch bundle list..." });
+            logger.error("Error fetching bundle detail:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle detail." });
         }
     });
 });
@@ -599,28 +854,53 @@ exports.getBundleDetail = onRequest(async (req, res) => {
 exports.downloadHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const uuid = req.query.uuid; // Bundle uuid
-
-            const bundleSnapshot = await getFirestore()
-                .collection("Bundles")
-                .doc(uuid)
-                .get();
-
-            if (bundleSnapshot.empty) {
-                return res.status(404).json({ error: "Bundle not found" });
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
 
-            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).orderBy("index").get();
+            // Validate UUID parameter
+            const uuid = req.query.uuid;
+            if (!uuid) {
+                logger.info("Missing UUID parameter in request.");
+                return res.status(400).json({ error: "Missing UUID parameter." });
+            }
 
-            const humorList = humorSnapshot.docs.map((doc, index) =>
-                ({ ...doc.data(), index: index + 1 })
-            );
+            const db = getFirestore();
 
-            res.json({ humorList });
+            // Fetch the bundle document
+            const bundleSnapshot = await db.collection("Bundles").doc(uuid).get();
 
+            // Check if the bundle exists
+            if (!bundleSnapshot.exists) {
+                logger.info("Bundle not found:", { uuid });
+                return res.status(404).json({ error: "Bundle not found." });
+            }
+
+            // Fetch humor items associated with the bundle
+            const humorSnapshot = await db
+                .collection("Humors")
+                .where("source", "==", uuid)
+                .orderBy("index")
+                .get();
+
+            if (humorSnapshot.empty) {
+                logger.info("No humors found for the bundle:", { uuid });
+                return res.status(200).json({ humorList: [] });
+            }
+
+            // Map humor documents to data, adding index
+            const humorList = humorSnapshot.docs.map((doc, index) => ({
+                ...doc.data(),
+                index: index + 1, // Assign a 1-based index
+            }));
+
+            logger.info("Humors fetched successfully for bundle:", { uuid, count: humorList.length });
+            return res.status(200).json({ humorList });
         } catch (error) {
-            logger.error("Error fetching humors in bundle...", error);
-            res.status(500).json({ error: "Could not fetch humors in bundle..." });
+            logger.error("Error fetching humors in bundle:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch humors in bundle." });
         }
     });
 });
@@ -629,39 +909,84 @@ exports.downloadHumorBundle = onRequest(async (req, res) => {
 exports.previewHumorBundle = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const uuid = req.query.uuid; // Bundle uuid
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
+            }
 
-            const bundleSnapshot = await getFirestore()
-                .collection("Bundles")
-                .doc(uuid)
-                .get();
+            // Validate UUID parameter
+            const uuid = req.query.uuid;
+            if (!uuid) {
+                logger.info("Missing UUID parameter in request.");
+                return res.status(400).json({ error: "Missing UUID parameter." });
+            }
 
-            if (bundleSnapshot.empty) {
-                return res.status(404).json({ error: "Bundle not found" });
+            const db = getFirestore();
+
+            // Fetch the bundle document
+            const bundleSnapshot = await db.collection("Bundles").doc(uuid).get();
+
+            // Check if the bundle exists
+            if (!bundleSnapshot.exists) {
+                logger.info("Bundle not found:", { uuid });
+                return res.status(404).json({ error: "Bundle not found." });
             }
 
             const bundleData = bundleSnapshot.data();
 
-            const humorSnapshot = await getFirestore().collection("Humors").where("source", "==", uuid).orderBy("index").limit(bundleData.preview_count).get();
-            let punchlinePlaceholder;
+            // Validate preview count
+            if (!bundleData.preview_count || bundleData.preview_count <= 0) {
+                logger.info("Invalid preview count for bundle:", { uuid });
+                return res.status(400).json({ error: "Invalid preview count for bundle." });
+            }
+
+            // Determine the punchline placeholder
+            let punchlinePlaceholder = "";
             switch (bundleData.category) {
-                case "DAD_JOKES": case "KNOCK_KNOCK_JOKES":
+                case "DAD_JOKES":
+                case "KNOCK_KNOCK_JOKES":
                 case "DARK_HUMORS":
-                case "STORY_JOKES": punchlinePlaceholder = "Purchase to view punchline! :)"; break;
+                case "STORY_JOKES":
+                    punchlinePlaceholder = "Purchase to view punchline! :)";
+                    break;
                 case "TRICKY_RIDDLES":
                 case "TRIVIA_QUIZ":
-                case "MYSTERY_PUZZLES": punchlinePlaceholder = "Purchase to view the answer! :)"; break;
-                default: punchlinePlaceholder = ""; break;
+                case "MYSTERY_PUZZLES":
+                    punchlinePlaceholder = "Purchase to view the answer! :)";
+                    break;
+                default:
+                    punchlinePlaceholder = "";
+                    break;
             }
-            const humorList = humorSnapshot.docs.map((doc, index) =>
-                ({ ...doc.data(), index: index + 1, punchline: bundleData.preview_show_punchline_yn ? doc.data().punchline : punchlinePlaceholder })
-            );
 
-            res.json({ humorList });
+            // Fetch humor items for the preview
+            const humorSnapshot = await db
+                .collection("Humors")
+                .where("source", "==", uuid)
+                .orderBy("index")
+                .limit(bundleData.preview_count)
+                .get();
 
+            if (humorSnapshot.empty) {
+                logger.info("No humor items found for the preview:", { uuid });
+                return res.status(200).json({ humorList: [] });
+            }
+
+            // Map humor documents to data
+            const humorList = humorSnapshot.docs.map((doc, index) => ({
+                ...doc.data(),
+                index: index + 1, // Assign a 1-based index
+                punchline: bundleData.preview_show_punchline_yn
+                    ? doc.data().punchline
+                    : punchlinePlaceholder,
+            }));
+
+            logger.info("Preview fetched successfully for bundle:", { uuid, count: humorList.length });
+            return res.status(200).json({ humorList });
         } catch (error) {
-            logger.error("Error fetching humors in bundle...", error);
-            res.status(500).json({ error: "Could not fetch humors in bundle..." });
+            logger.error("Error fetching preview humors in bundle:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch preview humors in bundle." });
         }
     });
 });
@@ -679,33 +1004,34 @@ exports.getAvailableSkuList = onRequest(async (req, res) => {
                 .get();
 
             if (bundleSetSnapshot.empty) {
-                res.json({ availableSkuList: [] });
-                return;
+                logger.info("No active bundle sets found.");
+                return res.status(200).json({ availableSkuList: [] });
             }
 
             // Extract unique bundle UUIDs from active bundle sets
             const bundleUuidList = new Set();
-            bundleSetSnapshot.forEach(doc => {
+            bundleSetSnapshot.forEach((doc) => {
                 const bundleSet = doc.data();
                 if (Array.isArray(bundleSet.bundle_list)) {
-                    bundleSet.bundle_list.forEach(uuid => bundleUuidList.add(uuid));
+                    bundleSet.bundle_list.forEach((uuid) => bundleUuidList.add(uuid));
                 }
             });
 
             if (bundleUuidList.size === 0) {
-                res.json({ availableSkuList: [] });
-                return;
+                logger.info("No bundles found in active bundle sets.");
+                return res.status(200).json({ availableSkuList: [] });
             }
 
-            // Fetch bundles using the UUIDs
+            // Fetch bundles using the extracted UUIDs
             const bundleSnapshot = await db
                 .collection("Bundles")
                 .where("uuid", "in", Array.from(bundleUuidList))
+                .where("active", "==", true)
                 .get();
 
             if (bundleSnapshot.empty) {
-                res.json({ availableSkuList: [] });
-                return;
+                logger.info("No active bundles found for the extracted UUIDs.");
+                return res.status(200).json({ availableSkuList: [] });
             }
 
             // Extract product IDs from the fetched bundles
@@ -716,10 +1042,11 @@ exports.getAvailableSkuList = onRequest(async (req, res) => {
                 })
                 .filter(productId => productId); // Ensure non-null product IDs
 
-            res.json({ availableSkuList });
+            logger.info("Available SKUs fetched successfully.", { count: availableSkuList.length });
+            return res.status(200).json({ availableSkuList });
         } catch (error) {
-            logger.error("Error fetching available SKU list: ", error);
-            res.status(500).json({ error: "Could not fetch available SKU list." });
+            logger.error("Error fetching available SKU list:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch available SKU list." });
         }
     });
 });
@@ -728,44 +1055,56 @@ exports.getAvailableSkuList = onRequest(async (req, res) => {
 exports.getBundleTotalLikes = onRequest(async (req, res) => {
     corsHandler(req, res, async () => {
         try {
-            const uuid = req.query.uuid; // string
-
-            if (!uuid) {
-                return res.status(400).json({ error: "UUID parameter is missing" });
+            // Validate HTTP method
+            if (req.method !== "GET") {
+                logger.info("Invalid HTTP method used:", { method: req.method });
+                return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
 
+            // Validate UUID parameter
+            const uuid = req.query.uuid;
+            if (!uuid) {
+                logger.info("Missing UUID parameter in request.");
+                return res.status(400).json({ error: "Missing UUID parameter." });
+            }
+
+            const db = getFirestore();
+
             // Fetch all humors associated with the given bundle UUID
-            const humorSnapshot = await getFirestore()
+            const humorSnapshot = await db
                 .collection("Humors")
                 .where("source", "==", uuid)
                 .get();
 
             if (humorSnapshot.empty) {
-                return res.status(404).json({ error: "No humors found for the given bundle UUID" });
+                logger.info("No humors found for the given bundle UUID:", { uuid });
+                return res.status(404).json({ error: "No humors found for the given bundle UUID." });
             }
 
             // Collect all humor UUIDs
-            const humorUUIDs = humorSnapshot.docs.map(doc => doc.data().uuid);
+            const humorUUIDs = humorSnapshot.docs.map((doc) => doc.data().uuid);
 
-            // Fetch all likes from Realtime Database in one batch
-            const db = getDatabase();
-            const likesRef = db.ref("likes");
+            if (humorUUIDs.length === 0) {
+                logger.info("No humor UUIDs found for the given bundle UUID:", { uuid });
+                return res.status(200).json({ totalLikes: 0 });
+            }
 
+            // Fetch all likes from Realtime Database
+            const rtdb = getDatabase();
+            const likesRef = rtdb.ref("likes");
             const likesSnapshot = await likesRef.once("value");
-            const allLikes = likesSnapshot.val();
+            const allLikes = likesSnapshot.val() || {};
 
-            // Sum the likes for all humor UUIDs
-            let totalLikes = 0;
-            humorUUIDs.forEach(humorUUID => {
-                if (allLikes && allLikes[humorUUID]) {
-                    totalLikes += allLikes[humorUUID];
-                }
-            });
+            // Calculate total likes
+            const totalLikes = humorUUIDs.reduce((sum, humorUUID) => {
+                return sum + (allLikes[humorUUID] || 0);
+            }, 0);
 
-            res.json({ totalLikes });
+            logger.info("Total likes calculated successfully for bundle:", { uuid, totalLikes });
+            return res.status(200).json({ totalLikes });
         } catch (error) {
-            logger.error("Error fetching bundle total likes:", error);
-            res.status(500).json({ error: "Could not fetch bundle total likes" });
+            logger.error("Error fetching bundle total likes:", { error: error.message, stack: error.stack });
+            return res.status(500).json({ error: "Internal server error. Could not fetch bundle total likes." });
         }
     });
 });
