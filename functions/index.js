@@ -540,14 +540,13 @@ exports.updateBundleCoverImages = onRequest(async (req, res) => {
                 if (!await verifyAdminPassword(passwordHash)) { // Password validation
                     return res.status(401).json("Wrong password!");
                 }
-                await fileUpload.makePublic();
+                // await fileUpload.makePublic();
                 const publicPath = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
 
                 await updateBundleInfo(uuid, method, parseInt(index, 10), publicPath);
 
                 return res.status(200).json({
-                    message: "File uploaded successfully",
-                    imageUrl: publicPath,
+                    message: "File uploaded successfully"
                 });
             } catch (error) {
                 console.error("Upload process error: ", error)
