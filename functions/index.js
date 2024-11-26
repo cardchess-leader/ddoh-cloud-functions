@@ -387,31 +387,27 @@ exports.getBundleSetList = onRequest(async (req, res) => {
         try {
             // Validate HTTP method
             if (req.method !== "GET") {
-                logger.info("Invalid HTTP method used:", { method: req.method });
+                logger.info("Invalid HTTP method used.", { method: req.method });
                 return res.status(405).json({ error: "Method not allowed. Use GET." });
             }
 
-            const isAdmin = req.query.isAdmin;
+            // Validate query parameters
+            const isAdmin = req.query.isAdmin === "true"; // Ensure query parameter is parsed correctly
 
             const db = getFirestore();
+            const collectionRef = db.collection("Bundles_Set");
 
-            // Query to fetch active bundle sets ordered by index
-            let snapshot = await db
-                .collection("Bundles_Set")
-                .where("active", "==", true)
-                .orderBy("index")
-                .get();
+            // Query based on admin status
+            const query = isAdmin
+                ? collectionRef.orderBy("index")
+                : collectionRef.where("active", "==", true).orderBy("index");
 
-            if (isAdmin) {
-                snapshot = await db
-                .collection("Bundles_Set")
-                .orderBy("index")
-                .get();
-            }
+            // Fetch data
+            const snapshot = await query.get();
 
-            // Return early if the collection is empty
+            // Check for empty results
             if (snapshot.empty) {
-                logger.info("No active bundle sets found in the database.");
+                logger.info(isAdmin ? "No bundle sets found." : "No active bundle sets found.");
                 return res.status(200).json({ bundleSetList: [] });
             }
 
@@ -421,12 +417,12 @@ exports.getBundleSetList = onRequest(async (req, res) => {
                 ...doc.data(),
             }));
 
-            // Respond with the fetched bundle set list
-            logger.info("Fetched bundle set list successfully.", { count: bundleSetList.length });
+            // Respond with data
+            logger.info("Bundle set list fetched successfully.", { count: bundleSetList.length, isAdmin });
             return res.status(200).json({ bundleSetList });
         } catch (error) {
-            // Log error and respond with a consistent error message
-            logger.error("Error fetching bundle set list:", { error: error.message, stack: error.stack });
+            // Log error details
+            logger.error("Error fetching bundle set list.", { error: error.message, stack: error.stack });
             return res.status(500).json({ error: "Internal server error. Could not fetch bundle set list." });
         }
     });
