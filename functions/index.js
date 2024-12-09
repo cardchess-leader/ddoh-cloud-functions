@@ -9,7 +9,7 @@ const { v4: uuidv4 } = require("uuid");
 const path = require("path");
 const cors = require("cors");
 const _busboy = require("busboy");
-const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody } = require("./util/util");
+const { IS_PRODUCTION, HumorCategoryList, CorsOriginList, getDateInUTC, addDaysToDate, validateRequestBody, validateUserSubmitBody, getRandomInt } = require("./util/util");
 initializeApp();
 const bucket = admin.storage().bucket();
 
@@ -343,6 +343,46 @@ exports.dailyHumorNotification = onSchedule("0 0 * * *", async (event) => {
         return null;
     } catch (error) {
         logger.error("Error sending humor notification:", error);
+        return null;
+    }
+});
+
+// Scheduled function for setting humor likes default counts
+exports.setHumorLikesDefaultCounts = onSchedule("12 3 * * *", async (event) => {
+    try {
+        const db = getFirestore();
+
+        // Fetch all humor documents
+        const snapshot = await db.collection("Humors").get();
+
+        if (snapshot.empty) {
+            logger.info("No humor found in the database.");
+            return null;
+        }
+
+        // Convert all humor documents into an array of UUIDs
+        const humorUUIDs = snapshot.docs.map((doc) => doc.data().uuid);
+
+        // Fetch all likes from Realtime Database
+        const rtdb = getDatabase();
+        const likesRef = rtdb.ref("likes");
+        const likesSnapshot = await likesRef.once("value");
+        const allLikes = likesSnapshot.val() || {};
+
+        // Update likes for humor UUIDs where the count is missing or zero
+        for (const humorUUID of humorUUIDs) {
+            if (allLikes[humorUUID] == null || allLikes[humorUUID] === 0) {
+                allLikes[humorUUID] = getRandomInt(10, 99);
+            }
+        }
+
+        // Write back updated likes to Realtime Database
+        await likesRef.set(allLikes);
+
+        logger.info("Successfully updated all likes counts in Realtime DB where they were missing or zero.");
+        return null;
+    } catch (error) {
+        logger.error("Error updating likes counts in Realtime DB:", error);
         return null;
     }
 });

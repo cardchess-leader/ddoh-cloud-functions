@@ -118,6 +118,10 @@ function validateRequestBody(requestBody) {
     return { statusCode: 200 };
 }
 
+function getRandomInt(min, max) {
+    // Ensure min and max are inclusive
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
 
 
 // Export both functions and constants
@@ -129,4 +133,5 @@ module.exports = {
     addDaysToDate,
     validateRequestBody,
     validateUserSubmitBody,
+    getRandomInt,
 };
